@@ -2,10 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- Viewport: no user-scalable=no / maximum-scale. Double-tap zoom and the tap delay are
-     removed with touch-action instead, so pinch-zoom stays available for adults/accessibility.
-     interactive-widget is not set: the game has no text inputs, so the on-screen keyboard never opens. -->
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- Viewport: maximum-scale=1, user-scalable=no (lead decision, fix-b): an accidental pinch-zoom on a fixed
+     one-screen game is hard for a 6-7 year old to undo. Chrome on Android honours it unless the user has
+     "Force enable zoom" on in accessibility settings. Double-tap zoom and the tap delay are also removed with
+     touch-action. interactive-widget is not set: the game has no text inputs, so the on-screen keyboard never opens. -->
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Letter Flower</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&family=Baloo+2:wght@600;800&display=swap">
@@ -695,15 +696,26 @@ window.addEventListener('click', e => {
   if (performance.now() - puAt < CLICK_AFTER_UP_MS && pdTarget && e.target instanceof Node &&
       !pdTarget.contains(e.target) && !e.target.contains(pdTarget)) { e.stopPropagation(); e.preventDefault(); }
 }, true);
+// Post-close lockout. A child's double tap on the backdrop or a level button: tap 1 closes the menu, and tap 2's
+// pointerdown lands on the letters that were just uncovered and types one (seen in test: typed "e"). The click
+// guard above cannot stop that -- it is a real pointerdown. So for LOCK_MS after the menu closes or the level
+// changes from the menu / Next flower, pointerdowns inside #game are dropped before any game handler sees them.
+const LOCK_MS = 300;
+let lockUntil = 0;
+const lockGame = () => { lockUntil = performance.now() + LOCK_MS; };
+window.addEventListener('pointerdown', e => {
+  if (performance.now() < lockUntil && e.target instanceof Node && $('game').contains(e.target)) { e.stopPropagation(); e.preventDefault(); }
+}, true);
 function closeMenu() {
   if (menu.hidden) return;
+  lockGame();
   menu.hidden = true; $('game').inert = false; menuBtn.setAttribute('aria-expanded', 'false');
   menuBtn.focus({ preventScroll: true });
 }
 onTap(menuBtn, openMenu);
 onTap($('close'), closeMenu);
 onTap($('backdrop'), closeMenu);
-onTap($('nextbig'), () => step(1));
+onTap($('nextbig'), () => { lockGame(); step(1); });
 // Capture phase on window runs before core's document keydown handler. Native Enter/Space activation of a
 // focused menu button is a default action, so it still works after stopPropagation.
 window.addEventListener('keydown', e => {
