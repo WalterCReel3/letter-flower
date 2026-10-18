@@ -123,8 +123,11 @@ button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-web
 .found .empty,.note{color:var(--muted);font-size:1rem;margin:0}
 .left{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--muted);font-size:1.05rem}
 .left b{color:var(--ink)}
-.levels{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.levels button{height:52px;border-radius:14px;border:2px solid var(--line);background:var(--card);color:var(--ink);font:700 1.1rem var(--read);
+/* fix-d2: columns by available width, not a fixed 1fr 1fr. The widest button ("Snapdragon 12/13", 1.1rem) is
+   ~179px, so two columns need ~366px of drawer; at 360 and 412 wide the drawer has 293 and 339, so phones get one
+   column and only a 400px drawer gets two. min-width:0 keeps a button inside its track whatever the font. */
+.levels{display:grid;grid-template-columns:repeat(auto-fill,minmax(11.5rem,1fr));gap:8px}
+.levels button{min-width:0;height:52px;border-radius:14px;border:2px solid var(--line);background:var(--card);color:var(--ink);font:700 1.1rem var(--read);
   display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 10px;cursor:pointer;text-align:left}
 .levels button span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .levels button small{flex:none;color:var(--muted);font-size:.95rem}
