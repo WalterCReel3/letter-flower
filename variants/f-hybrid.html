@@ -610,11 +610,20 @@ function fitText(el, box, over) {
   const min = s * .5;
   while (over() && s > min) { s -= 1; el.style.fontSize = s + 'px'; }
 }
+const TITLE_SLACK = 3;   // px kept clear between the level name and the right edge of .lvl
 function fitAll() {
   const lvl = $('pnum').parentElement, w = $('word');
   // Strict, unlike a-tidy's "+1": with fractional font sizes a 1px tolerance left "Level Snapdragon" 1px past its
-  // box once the count read 10/13 (probe, 412x760). The name's own box must end inside .lvl.
-  fitText($('pnum'), lvl, () => lvl.scrollWidth > lvl.clientWidth || $('pnum').getBoundingClientRect().right > lvl.getBoundingClientRect().right);
+  // box once the count read 10/13 (probe, 412x760). The name's text must end TITLE_SLACK px inside .lvl
+  // (polish-f): a-tidy's "Level Carnation" ran 1.2px past .lvl at 360x640, and F passed only because its
+  // fallback font was slightly narrower, so a wider web font could clip it. Measured on a Range over the text
+  // and on the span, whichever ends further right.
+  const pn = $('pnum'), rg = document.createRange();
+  fitText(pn, lvl, () => {
+    rg.selectNodeContents(pn);
+    const right = Math.max(rg.getBoundingClientRect().right, pn.getBoundingClientRect().right);
+    return lvl.scrollWidth > lvl.clientWidth || right > lvl.getBoundingClientRect().right - TITLE_SLACK;
+  });
   fitText(w, w, () => rowOverflows(w, -2));   // keep 2px clear of both edges
 }
 // Re-measure when the size or the font changes: the web font (display=swap) can arrive after the first
