@@ -23,7 +23,9 @@
      Once fonts/*.woff2 exist: delete the two Google <link> lines and un-comment the <style> block after them.
      Steps in fonts/README.txt. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&family=Baloo+2:wght@600;800&display=swap">
+<!-- Loaded without blocking render (media=print, then all once it arrives), so a network that silently drops
+     Google cannot hold the screen blank; the game shows in system fonts and swaps (display=swap, refit). -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&family=Baloo+2:wght@600;800&display=swap" media="print" onload="this.media='all'">
 <!--
 <style>
 @font-face{font-family:"Andika";font-style:normal;font-weight:400;font-display:swap;src:url("./fonts/andika-latin-400.woff2") format("woff2")}
@@ -866,6 +868,34 @@ load();
 if ('serviceWorker' in navigator &&
     (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
   addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => {}); });
+  // Updates while the app stays open. Android resumes an installed app from Recents without a navigation,
+  // so on every return to the foreground: check for a new sw.js and ask the worker whether index.html
+  // changed. A new page or worker reloads the app only at a safe moment: no typed letters, menu closed,
+  // nothing being spoken and no touch or key for QUIET_MS. Never mid-word. Progress is in localStorage.
+  (() => {
+    const sw = navigator.serviceWorker, QUIET_MS = 2000;
+    let pending = false, hadController = !!sw.controller, lastInput = -Infinity, lastCheck = -Infinity, poll = 0;
+    const touch = () => { lastInput = performance.now(); };
+    addEventListener('pointerdown', touch, true);
+    addEventListener('keydown', touch, true);
+    const safe = () => {
+      const s = window.Game && window.Game.state();
+      return !!s && s.typed === '' && document.getElementById('menu').getAttribute('aria-expanded') !== 'true' &&
+        !(window.speechSynthesis && speechSynthesis.speaking) && performance.now() - lastInput >= QUIET_MS;
+    };
+    const tryReload = () => { if (pending && safe()) { pending = false; clearInterval(poll); location.reload(); } };
+    const ready = () => { if (pending) return; pending = true; poll = setInterval(tryReload, 500); tryReload(); };
+    sw.addEventListener('message', e => { if (e.data && e.data.type === 'lf-page-updated') ready(); });
+    sw.addEventListener('controllerchange', () => { if (hadController) ready(); hadController = true; });
+    sw.startMessages();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return tryReload();
+      if (performance.now() - lastCheck < 10000) return;
+      lastCheck = performance.now();
+      sw.getRegistration().then(reg => reg && reg.update()).catch(() => {});
+      if (sw.controller) sw.controller.postMessage({ type: 'lf-check' });
+    });
+  })();
 }
 </script>
 </body>

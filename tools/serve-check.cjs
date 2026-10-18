@@ -18,7 +18,13 @@
  *              renders (7 letters), a letter tap types it, and the fonts are still loaded.
  *   update     online again, the server publishes a changed index.html: one reload shows it.
  *   badpub     the server answers index.html with 500: the reload shows the last good copy.
- *   slow       the server holds index.html for 8 s: the reload shows the cached copy in < 6 s.
+ *   slow       the server holds index.html for 8 s: the reload shows the cached copy in < 6 s, and when
+ *              the held copy lands the open page reloads by itself to show it.
+ *   resume     visibilitychange hidden->visible with no navigation (Android resuming from Recents): a new
+ *              index.html, and separately a new sw.js, make the open page reload by itself; with a letter
+ *              typed it does not reload, and it does once the word is empty again.
+ *   moved      the server answers index.html with 301 (followed to the new place) and with 404 (shown),
+ *              instead of the old cached copy being served forever; then back to normal.
  *   errors     no pageerror and no console.error anywhere above (offline-only "Failed to load resource"
  *              lines are listed, not failed, since the browser logs them for the network attempt).
  * Exit 0 all PASS, 1 any FAIL, 2 setup problem.
@@ -38,7 +44,7 @@ const FONT_FILES = ['fonts/andika-latin-400.woff2', 'fonts/andika-latin-700.woff
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Server knobs the checks flip: what index.html looks like right now.
-const mode = { index: 'normal' };   // normal | updated | error | slow
+const mode = { index: 'normal', marker: '2', sw: 'normal' };   // index: normal | updated | error | slow | redirect | missing
 const served = [];                  // [status, path]
 
 function serve(req, res) {
@@ -49,6 +55,7 @@ function serve(req, res) {
     res.writeHead(code, Object.assign({ 'Content-Type': type || 'text/plain', 'Cache-Control': 'max-age=600' }, extra || {}));
     res.end(body);
   };
+  if (p === '/moved/') return done(200, '<!doctype html><title>moved</title><p id="moved">moved</p>', 'text/html');
   if (!p.startsWith(BASE)) return done(404, 'not under ' + BASE);
   let rel = p.slice(BASE.length) || 'index.html';
   if (rel.endsWith('/')) rel += 'index.html';
@@ -57,9 +64,12 @@ function serve(req, res) {
   fs.readFile(file, (err, buf) => {
     if (err) return done(404, 'not found');
     const type = TYPES[path.extname(file)] || 'application/octet-stream';
+    if (rel === 'sw.js' && mode.sw === 'updated') buf = Buffer.concat([buf, Buffer.from('\n// build 2\n')]);
     if (rel === 'index.html') {
       if (mode.index === 'error') return done(500, 'publish broke');
-      if (mode.index === 'updated') buf = Buffer.from(buf.toString().replace('</body>', '<i id="build-marker" hidden>2</i></body>'));
+      if (mode.index === 'redirect') return done(301, 'moved', 'text/plain', { Location: '/moved/' });
+      if (mode.index === 'missing') return done(404, 'gone');
+      if (mode.index === 'updated') buf = Buffer.from(buf.toString().replace('</body>', `<i id="build-marker" hidden>${mode.marker}</i></body>`));
       if (mode.index === 'slow') return setTimeout(() => done(200, buf, type), 8000);
     }
     done(200, buf, type);
@@ -101,6 +111,7 @@ const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail: det
     const at = (m.location() || {}).url || '';
     if (/Failed to load resource/.test(m.text()) && at && !at.startsWith(origin)) return;  // reported by "no external requests"
     if (phase === 'offline' && /Failed to load resource|ERR_INTERNET_DISCONNECTED/.test(m.text())) offlineNoise.push(t);
+    else if (phase === 'missing' && /status of 404/.test(m.text())) offlineNoise.push(t);
     else errors.push(t);
   });
   const fontResponses = {};
@@ -126,6 +137,25 @@ const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail: det
     return { before, after, c, ok: after === before + c };
   };
   const reload = async () => { const r = await page.reload({ waitUntil: 'load' }); await sleep(400); return r; };
+  // A reload the page does by itself (not page.reload) is seen as window.__lfMark disappearing.
+  const mark = () => page.evaluate(() => { window.__lfMark = 1; });
+  const pageState = async () => {
+    for (let i = 0; i < 10; i++) {
+      try {
+        return await page.evaluate(() => ({ reloaded: !window.__lfMark, marker: (document.getElementById('build-marker') || {}).textContent || null,
+          letters: document.querySelectorAll('.flower button').length, typed: window.Game ? window.Game.state().typed : null }));
+      } catch (e) { await sleep(200); }   // mid-navigation
+    }
+    return {};
+  };
+  const waitFor = async (pred, ms) => { const t = Date.now(); let s; do { s = await pageState(); if (pred(s)) return s; await sleep(250); } while (Date.now() - t < ms); return s; };
+  // Android resuming the app from Recents: hidden, then visible again (headless pages are always visible).
+  const resume = () => page.evaluate(() => {
+    for (const v of ['hidden', 'visible']) {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v });
+      document.dispatchEvent(new Event('visibilitychange'));
+    }
+  });
 
   try {
     // ---- first load ----
@@ -246,8 +276,60 @@ const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail: det
     const dt = Date.now() - t0;
     const g4 = await page.evaluate(() => document.querySelectorAll('.flower button').length);
     check('slow network falls back', dt < 6000 && g4 === 7, `${dt} ms, status ${r4 && r4.status()} letters=${g4}`);
+    // The held response (no marker) lands after 8 s; the worker stores it and tells the page, which reloads.
+    await mark();
     mode.index = 'normal';
-    await sleep(4500);  // let the held response finish before closing
+    const s4 = await waitFor(s => s.reloaded && !s.marker && s.letters === 7, 9000);
+    check('slow refresh reaches open page', s4.reloaded && !s4.marker && s4.letters === 7, `reloaded by itself=${s4.reloaded} marker=${s4.marker}`);
+
+    // ---- resume from Recents (no navigation): a new index.html reaches the open page ----
+    await sleep(500);
+    await mark();
+    mode.index = 'updated'; mode.marker = '3';
+    await resume();
+    const s5 = await waitFor(s => s.reloaded && s.marker === '3', 6000);
+    check('resume picks up new page', s5.reloaded && s5.marker === '3', `reloaded by itself=${s5.reloaded} marker=${s5.marker}`);
+
+    // ... but never mid-word: with a letter typed it waits, and reloads once the word is empty.
+    await sleep(11000);   // the page throttles checks to one per 10 s
+    await mark();
+    mode.marker = '4';
+    const t6 = await tapCentre();
+    await resume();
+    await sleep(4000);
+    const s6 = await pageState();
+    check('no reload mid-word', t6.ok && !s6.reloaded && s6.typed === t6.after && s6.marker === '3', `typed "${s6.typed}" reloaded=${s6.reloaded} marker=${s6.marker}`);
+    await page.keyboard.press('Backspace');
+    const s7 = await waitFor(s => s.reloaded && s.marker === '4', 6000);
+    check('reload once word is empty', s7.reloaded && s7.marker === '4', `reloaded by itself=${s7.reloaded} marker=${s7.marker}`);
+
+    // ... and a new sw.js: registration.update() on resume installs it, and the page reloads once.
+    await sleep(11000);
+    await mark();
+    mode.sw = 'updated';
+    const swBefore = served.filter(([, p]) => p.endsWith('/sw.js')).length;
+    await resume();
+    const s8 = await waitFor(s => s.reloaded, 8000);
+    const swFetched = served.filter(([c, p]) => c === 200 && p.endsWith('/sw.js')).length - swBefore;
+    const ctl8 = await page.evaluate(() => !!navigator.serviceWorker.controller).catch(() => false);
+    check('resume picks up new sw.js', s8.reloaded && swFetched >= 1 && ctl8 && s8.letters === 7, `sw.js fetched ${swFetched}x, reloaded by itself=${s8.reloaded}, controlled=${ctl8}`);
+
+    // ---- moved or removed app: the server's answer is shown, not the old copy forever ----
+    phase = 'redirect';
+    mode.index = 'redirect';
+    const r9 = await page.reload({ waitUntil: 'load' }).catch(e => e);
+    const at9 = page.url(), moved = await page.evaluate(() => !!document.getElementById('moved')).catch(() => false);
+    check('redirect (301) is followed', at9.endsWith('/moved/') && moved, `now at ${at9.replace(origin, '')}, moved page=${moved}`);
+    phase = 'missing';
+    mode.index = 'missing';
+    const r10 = await page.goto(appUrl, { waitUntil: 'load' });
+    const g10 = await page.evaluate(() => document.querySelectorAll('.flower button').length);
+    check('removed page (404) is shown', r10 && r10.status() === 404 && g10 === 0, `status ${r10 && r10.status()} letters=${g10}`);
+    phase = 'online';
+    mode.index = 'normal';
+    const r11 = await page.goto(appUrl, { waitUntil: 'load' });
+    const g11 = await page.evaluate(() => document.querySelectorAll('.flower button').length);
+    check('back to normal after 301/404', r11 && r11.status() === 200 && g11 === 7, `status ${r11 && r11.status()} letters=${g11}`);
 
     check('no external requests', !external.size, external.size ? [...external].join(', ') : 'none');
   } catch (e) {
@@ -260,7 +342,7 @@ const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail: det
 
   const w = Math.max(...results.map(r => r.name.length));
   for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name.padEnd(w)}  ${r.detail}`);
-  if (offlineNoise.length) console.log(`note: ${offlineNoise.length} offline network line(s) not counted: ${offlineNoise.join(' | ')}`);
+  if (offlineNoise.length) console.log(`note: ${offlineNoise.length} offline/404 network line(s) not counted: ${offlineNoise.join(' | ')}`);
   const fail = results.filter(r => !r.ok).length;
   console.log(fail ? `OVERALL: FAIL (${fail})` : 'OVERALL: PASS');
   process.exit(fail ? 1 : 0);
