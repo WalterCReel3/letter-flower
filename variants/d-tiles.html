@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Variant D "Tap Tiles", built from variants/core.html.
+     The word is a row of letter tiles; tapping a tile takes that letter out, the ✕ tile clears the word.
+     No Back button (hardware Backspace still deletes the last letter).
+     Viewport: as core (no user-scalable=no; touch-action removes double-tap zoom and the tap delay). -->
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Letter Flower</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&family=Baloo+2:wght@600;800&display=swap">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+:root{color-scheme:light}
+img{max-width:100%}
+[hidden]:not([hidden=until-found i]){display:none!important}
+
+:root{
+  --sky:#eef6f7; --card:#ffffff; --ink:#23323a; --muted:#5d6f78;
+  --petal:#ffd6e3; --petal-ink:#7a1f45; --center:#ffc93c; --center-ink:#3d2a00;
+  --leaf:#3f9b5a; --leaf-soft:#d5efdc; --line:#cfe1e4; --warn:#b5452b;
+  /* Fallbacks matter: offline (and on Android without Trebuchet/Comic Sans) these land on system-ui. */
+  --display:"Baloo 2","Trebuchet MS",system-ui,sans-serif;
+  --read:"Andika","Comic Sans MS",system-ui,sans-serif;
+  /* Vertical rhythm: everything scales with the visible height so the game fits 640..915 px tall. */
+  --gap:clamp(4px,1.2dvh,12px);
+  --th:clamp(48px,6.4dvh,58px);     /* letter tile height (>= 48 px touch target) */
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --sky:#142227; --card:#1c2e34; --ink:#eaf3f4; --muted:#a6bac0;
+  --petal:#6b2a46; --petal-ink:#ffe3ee; --center:#f2b827; --center-ink:#2a1c00;
+  --leaf:#6fcf8a; --leaf-soft:#20402c; --line:#2f4950; --warn:#ff9a7f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --sky:#142227; --card:#1c2e34; --ink:#eaf3f4; --muted:#a6bac0;
+  --petal:#6b2a46; --petal-ink:#ffe3ee; --center:#f2b827; --center-ink:#2a1c00;
+  --leaf:#6fcf8a; --leaf-soft:#20402c; --line:#2f4950; --warn:#ff9a7f; color-scheme:dark}
+/* One fixed screen: the page itself never scrolls. overscroll-behavior:none stops pull-to-refresh. */
+html,body{height:100%;margin:0;padding:0;overflow:hidden;background:var(--sky);color:var(--ink);overscroll-behavior:none}
+/* No text selection, long-press callout/menu, Touch-to-Search or grey tap flash anywhere in the game. */
+body{font:16px var(--read);
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;font-family:inherit}
+
+.game{height:100dvh;max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:var(--gap);overflow:hidden;
+  padding:calc(8px + env(safe-area-inset-top,0px)) 12px calc(8px + env(safe-area-inset-bottom,0px))}
+.game > *{flex:none}
+
+/* Top bar: hamburger, level name, small plant. */
+.top{display:flex;align-items:center;gap:10px;height:52px}
+.iconbtn{flex:none;width:52px;height:52px;border-radius:16px;border:3px solid var(--ink);background:var(--card);color:var(--ink);
+  font:800 1.6rem/1 var(--display);cursor:pointer;touch-action:none;display:grid;place-items:center;padding:0}
+.title{flex:1;min-width:0}
+.lvl{font-family:var(--display);font-weight:800;font-size:clamp(1.3rem,6.4vw,1.75rem);line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sub{color:var(--muted);font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sub b{color:var(--ink)}
+.top svg{flex:none}
+.grow{transition:all .5s}
+
+/* Recent words, newest first; tap to hear. */
+.recent{display:flex;gap:6px;height:40px;align-items:center;overflow:hidden;flex-wrap:nowrap}
+.recent button{flex:none;height:40px;font:700 1.1rem var(--read);color:var(--ink);background:var(--leaf-soft);border:none;border-radius:12px;padding:0 9px;cursor:pointer;touch-action:none;white-space:nowrap}
+.recent button.bonus{background:var(--petal);color:var(--petal-ink)}
+.recent .empty{color:var(--muted);font-size:1rem}
+
+/* The word as tiles. Two rows are always reserved so the flower never moves while typing.
+   7 tiles per row: 12 letters + the ✕ tile fit in two rows without overflow. */
+.word{height:calc(2 * var(--th) + 6px);display:flex;flex-wrap:wrap;align-content:center;justify-content:center;gap:6px 4px}
+.tile{width:clamp(40px,calc((100vw - 48px) / 7),58px);height:var(--th);border-radius:12px;border:none;padding:0 0 .1em;
+  font:700 clamp(1.5rem,7vw,2rem) var(--read);background:var(--petal);color:var(--petal-ink);cursor:pointer;touch-action:none}
+.tile.c{background:var(--center);color:var(--center-ink)}
+.tile.x{background:transparent;color:var(--warn);border:3px dashed var(--warn);font-size:clamp(1.2rem,5.5vw,1.6rem)}
+.tile:active{transform:scale(.92)}
+.word .empty{color:var(--muted);font-size:1.15rem}
+.word.full{animation:full .35s}
+@keyframes full{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+
+.msg{height:1.5em;line-height:1.5em;text-align:center;font-family:var(--display);font-weight:800;font-size:clamp(.95rem,4.6vw,1.25rem);color:var(--leaf);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.msg.no{color:var(--warn)}
+
+/* The flower takes whatever height is left (container query), letters stay >= 64 px (31% of >= 207 px). */
+.stage{flex:1 1 auto;min-height:207px;container-type:size;display:flex;align-items:center;justify-content:center}
+.flower{position:relative;width:max(207px,min(100cqw,100cqh,340px));aspect-ratio:1;touch-action:none}
+.flower button{position:absolute;width:31%;aspect-ratio:1;border-radius:50%;border:none;font:700 clamp(2rem,10vw,2.8rem) var(--read);cursor:pointer;transform:translate(-50%,-50%);transition:transform .12s;touch-action:none;padding:0 0 .12em}
+.flower button.o{background:var(--petal);color:var(--petal-ink)}
+.flower button.m{background:var(--center);color:var(--center-ink);box-shadow:0 0 0 6px var(--leaf-soft)}
+.flower button:active{transform:translate(-50%,-50%) scale(.9)}
+:focus-visible{outline:4px solid var(--leaf);outline-offset:3px}
+
+/* Buttons. Action buttons fire on pointerup inside the button; touch-action:none so a slight slide is not a scroll. */
+.btn{font:800 1.2rem var(--display);border-radius:999px;padding:0 14px;height:52px;border:3px solid var(--ink);background:var(--card);color:var(--ink);cursor:pointer;touch-action:none;white-space:nowrap}
+.btn.go{background:var(--leaf);border-color:var(--leaf);color:var(--card)}
+.hints{display:flex;align-items:center;gap:8px;height:52px}
+.hints .btn{flex:none;min-width:96px}
+.hintline{flex:1;min-width:0;text-align:center;font-size:clamp(1.1rem,5.4vw,1.5rem);font-weight:700;letter-spacing:.06em;white-space:nowrap;overflow:hidden}
+.nextmain{height:52px;width:100%;font-size:1.35rem}
+.actions{display:flex;gap:10px;height:58px}
+.actions .btn{height:58px}
+#mix{flex:1 1 0}
+#enter{flex:2 1 0;font-size:1.45rem}
+
+/* Menu drawer. Closed = [hidden] (display:none), so nothing in it can be tapped or seen by the checker. */
+.menu{position:fixed;inset:0;z-index:10}
+.backdrop{position:absolute;inset:0;background:rgba(0,0,0,.45);touch-action:none}
+.sheet{position:absolute;top:0;bottom:0;left:0;width:min(88vw,400px);background:var(--sky);display:flex;flex-direction:column;
+  box-shadow:4px 0 24px rgba(0,0,0,.3);animation:fadein .15s ease-out;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+/* A fade, not a slide: buttons never move under a finger that taps while the drawer is opening. */
+@keyframes fadein{from{opacity:0}}
+.sheethead{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;flex:none}
+.sheethead h2{margin:0;font:800 1.6rem var(--display)}
+/* .scroll comes from core: overflow-y:auto, overscroll-behavior:contain, touch-action:pan-y (buttons inside pan-y too). */
+.scroll{overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y}
+.scroll button{touch-action:pan-y}
+.sheetbody{flex:1;min-height:0;padding:0 12px 20px;display:flex;flex-direction:column;gap:12px}
+.sheetbody h3{margin:6px 0 0;font:800 1.25rem var(--display)}
+.mrow{display:flex;gap:8px;flex-wrap:wrap}
+.mrow .btn{flex:1 1 auto;font-size:1.1rem}
+.btn[aria-pressed="false"]{color:var(--muted);border-color:var(--line)}
+.found{display:flex;flex-wrap:wrap;gap:8px}
+.found button{font:700 1.2rem var(--read);color:var(--ink);background:var(--leaf-soft);border:none;border-radius:12px;padding:0 12px;min-height:44px;cursor:pointer}
+.found button.bonus{background:var(--petal);color:var(--petal-ink)}
+.found .empty,.note{color:var(--muted);font-size:1rem;margin:0}
+.left{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--muted);font-size:1.05rem}
+.left b{color:var(--ink)}
+.levels{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.levels button{height:52px;border-radius:14px;border:2px solid var(--line);background:var(--card);color:var(--ink);font:700 1.1rem var(--read);
+  display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 10px;cursor:pointer;text-align:left}
+.levels button span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.levels button small{flex:none;color:var(--muted);font-size:.95rem}
+.levels button[aria-current="true"]{border:3px solid var(--leaf);background:var(--leaf-soft)}
+.levels button.done small{color:var(--leaf)}
+.how{margin:0;padding-left:1.4em;font-size:1.1rem;line-height:1.5}
+@media (prefers-reduced-motion:reduce){.grow,.flower button{transition:none}.word.full,.sheet{animation:none}}
+</style>
+</head>
+<body>
+
+<div class="game" id="game">
+  <header class="top">
+    <button class="iconbtn" id="menuBtn" aria-label="Menu" aria-expanded="false" aria-controls="menu">☰</button>
+    <div class="title">
+      <div class="lvl" id="pnum">Level Daisy</div>
+      <div class="sub"><span id="rank">Seed</span> · <b id="count">0 of 0</b><span id="wordsWord"> words</span></div>
+    </div>
+    <svg id="plant" width="44" height="50" viewBox="0 0 64 72" aria-hidden="true">
+      <rect x="10" y="60" width="44" height="12" rx="4" fill="var(--warn)" opacity=".75"/>
+      <rect id="stem" class="grow" x="30" y="60" width="4" height="0" rx="2" fill="var(--leaf)"/>
+      <ellipse id="leafL" class="grow" cx="24" cy="46" rx="8" ry="4" fill="var(--leaf)" opacity="0"/>
+      <ellipse id="leafR" class="grow" cx="40" cy="38" rx="8" ry="4" fill="var(--leaf)" opacity="0"/>
+      <g id="bloom" class="grow" opacity="0">
+        <circle cx="32" cy="10" r="7" fill="var(--petal)" stroke="var(--petal-ink)" stroke-width="1"/>
+        <circle cx="22" cy="17" r="7" fill="var(--petal)" stroke="var(--petal-ink)" stroke-width="1"/>
+        <circle cx="42" cy="17" r="7" fill="var(--petal)" stroke="var(--petal-ink)" stroke-width="1"/>
+        <circle cx="26" cy="28" r="7" fill="var(--petal)" stroke="var(--petal-ink)" stroke-width="1"/>
+        <circle cx="38" cy="28" r="7" fill="var(--petal)" stroke="var(--petal-ink)" stroke-width="1"/>
+        <circle cx="32" cy="20" r="6" fill="var(--center)"/>
+      </g>
+    </svg>
+  </header>
+
+  <div class="recent" id="recent" aria-label="New words"></div>
+
+  <div class="word" id="word" aria-label="Your word"></div>
+  <div class="msg" id="msg" role="status">Every word needs the yellow letter!</div>
+
+  <div class="stage"><div class="flower" id="flower"></div></div>
+
+  <div class="hints" id="hints">
+    <button class="btn" id="peek">👀 Peek</button>
+    <div class="hintline" id="hintline" aria-live="polite"></div>
+    <button class="btn" id="hear">👂 Hear</button>
+  </div>
+  <button class="btn go nextmain" id="nextMain" hidden>Next flower ▶</button>
+
+  <div class="actions">
+    <button class="btn" id="mix">🔄 Mix</button>
+    <button class="btn go" id="enter">✓ Check</button>
+  </div>
+</div>
+
+<div class="menu" id="menu" hidden>
+  <div class="backdrop" id="backdrop" aria-hidden="true"></div>
+  <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="menuTitle">
+    <div class="sheethead">
+      <h2 id="menuTitle">Menu</h2>
+      <button class="iconbtn" id="close" aria-label="Close menu">✕</button>
+    </div>
+    <div class="sheetbody scroll" id="sheetbody">
+      <div class="mrow">
+        <button class="btn" id="sound" aria-pressed="true">🔊 Sound on</button>
+        <button class="btn" id="shuf" aria-pressed="false">Mix up the flowers 🔀</button>
+      </div>
+      <div class="mrow">
+        <button class="btn" id="prev">◀ Last flower</button>
+        <button class="btn go" id="next">Next flower ▶</button>
+      </div>
+      <h3>Words I found</h3>
+      <div class="found" id="found"></div>
+      <p class="note" id="bonusnote" hidden>⭐ Pink words are bonus words!</p>
+      <div class="left" id="left"></div>
+      <h3>Flowers</h3>
+      <div class="levels" id="levels"></div>
+      <h3>How to play</h3>
+      <ol class="how">
+        <li>Tap letters to make a word.</li>
+        <li>Use the yellow letter every time.</li>
+        <li>Tap a letter tile to take it out. ✕ clears it all.</li>
+        <li>Tap ✓ Check. Find all the words to make the flower bloom!</li>
+      </ol>
+    </div>
+  </section>
+</div>
+
+<script>
+/*
+ * Levels. Each puzzle: id (permanent save key), name (shown as "Level <name>"),
+ * c = center letter (in every word), o = the six petal letters, w = target words, b = bonus words.
+ *
+ * Order is baked, not computed at runtime, so it is the same on every device and reload.
+ * It was produced ONCE from the original letter-flower.html P array (original puzzles 1..30) by a
+ * Fisher-Yates shuffle (for i = n-1 down to 1: j = floor(rand() * (i+1)); swap i, j) driven by
+ * mulberry32 with seed 20261017; names were then assigned in list order (Daisy, Tulip, Rose, ...).
+ * Bonus lists had these non-kid entries removed: bafta brit goa otto orc parr tor playa hath thee
+ * thine ken roc ted mon monte conte carte chino newton. Target (w) words were not touched.
+ */
+const P=[
+  {"id":"daisy","name":"Daisy","c":"i","o":"begprt","w":["bib","big","bit","bite","pie","pig","pit","tie","tiger","tip","trip"],"b":["beige","bigger","bitter","bribe","brig","eerie","gig","grip","grit","ire","petit","petite","pier","pip","pipe","piper","retire","rib","rig","rip","ripe","ripper","rite","terrier","tier","tire","tribe","trigger"]},
+  {"id":"tulip","name":"Tulip","c":"n","o":"deiopw","w":["down","end","need","new","nine","noon","now","one","open","own","pen","pin","pine","pond","win","wind"],"b":["deepen","den","depend","din","dine","don","done","indeed","inn","iodine","ion","nip","nod","node","non","none","nope","onion","opinion","widen","window","wine","won","wooden"]},
+  {"id":"rose","name":"Rose","c":"p","o":"acirtu","w":["cap","cup","part","pat","pit","pup","put","rap","tap","tip","trap","trip"],"b":["apart","apt","carp","pact","pair","pap","papa","par","para","pic","pip","pita","putt","rip"]},
+  {"id":"sunflower","name":"Sunflower","c":"a","o":"bdoprt","w":["add","art","bad","bar","bat","boat","dad","oat","pad","part","pat","rap","rat","road","tap","tar","toad","trap"],"b":["abbot","aboard","abort","abroad","adapt","ado","adopt","apart","apt","arbor","atop","baba","barb","bard","boa","boar","board","brad","brat","broad","dab","dart","data","dorado","drab","pap","papa","par","para","parrot","potato","radar","rapport","raptor","roar","tab","taboo","tarot","tart","tat","tattoo"]},
+  {"id":"lily","name":"Lily","c":"l","o":"abempy","w":["all","apple","ball","bell","lamb","lamp","lap","meal","play","yell"],"b":["able","ale","alley","ally","alma","ample","appeal","apply","bale","balm","belle","belly","blame","eel","elm","emblem","eyeball","lab","label","lama","lame","lay","leap","lee","male","mall","mammal","maple","melee","pal","pale","palm","palpable","papal","payable","pebble","peel","plea","ply","yelp"]},
+  {"id":"poppy","name":"Poppy","c":"d","o":"aegorw","w":["add","dad","dear","deer","dog","draw","good","odd","red","road","weed","wood","word"],"b":["added","ado","adore","aged","award","dagger","dare","dead","dee","deed","degrade","degraded","degree","dew","dodge","dodger","doe","door","dorado","drag","drawer","dread","dredge","drew","edge","edged","erode","eroded","grade","graded","grader","greed","ode","odor","order","ordered","radar","ragged","read","reader","redwood","reed","regard","reread","reward","rod","rode","rodeo","wade","ward","wed","wedge","wooded"]},
+  {"id":"violet","name":"Violet","c":"p","o":"ahilot","w":["hop","lap","lip","loop","pat","pit","pool","pop","pot","tap","tip","top"],"b":["alpha","apt","atop","hap","hilltop","hip","hippo","hoop","lollipop","opal","pal","pap","papa","papal","path","patio","photo","pill","pilot","pip","pita","plot","poll","polo","pooh","potato"]},
+  {"id":"pansy","name":"Pansy","c":"t","o":"abegnu","w":["ant","ate","bat","bet","but","eat","gate","get","neat","net","nut","tag","tan","ten","tent","tub","tug","tuna"],"b":["agent","ante","antenna","aunt","beat","beaten","beet","bent","beta","butt","butte","eaten","gut","nugget","tab","tang","tangent","tat","tea","tee","teen","teenage","tenant","tenet","tube","tune","unbeaten"]},
+  {"id":"iris","name":"Iris","c":"e","o":"aiklmt","w":["ate","eat","kite","lake","let","lie","like","lime","little","make","meal","meat","met","mile","take","team","tie","time"],"b":["ale","alike","eel","elite","elk","elm","emit","imitate","item","kale","keel","kettle","lame","late","leak","lee","lite","male","mallet","mate","matte","meek","meet","melee","melt","meta","metal","mime","mite","tale","tame","tea","teal","tee","tell","tile","title"]},
+  {"id":"daffodil","name":"Daffodil","c":"h","o":"eimrtw","w":["her","here","him","hit","the","them","there","three","where","white","with"],"b":["either","ether","heir","hem","hermit","hire","hitter","teeth","their","theme","threw","whether","whew","whim","wither"]},
+  {"id":"marigold","name":"Marigold","c":"o","o":"elmnpt","w":["loop","lot","mom","moon","mop","noon","not","note","one","open","pool","pop","pot","toe","tone","too","tool","top"],"b":["lemon","lone","loom","loot","lotto","melon","mole","molten","moment","mono","moo","moot","motto","noel","non","none","nope","omen","onto","opponent","people","plot","poem","poet","pole","poll","pollen","polo","pope","potent","tempo","toll","tom","ton","toon","toot","tot","tote","totem"]},
+  {"id":"lilac","name":"Lilac","c":"i","o":"efknpt","w":["fin","fit","ink","kit","kite","nine","pie","pin","pine","pit","tie","tin","tip"],"b":["fife","fifteen","fine","finite","inept","infinite","inn","intent","kin","kink","kitten","knife","knit","nineteen","nip","nit","petit","petite","pike","pink","pint","pip","pipe","tiff","tint"]},
+  {"id":"orchid","name":"Orchid","c":"t","o":"abefmo","w":["ate","bat","bet","boat","boot","eat","fat","feet","foot","mat","meat","met","moat","oat","team","toe","tomato","too"],"b":["abbot","aft","atom","beat","beet","beta","bot","bottom","fate","feat","mate","matte","meet","meta","moot","motto","oft","tab","taboo","tame","tat","tattoo","tea","tee","tom","tomb","toot","tot","tote","totem"]},
+  {"id":"peony","name":"Peony","c":"e","o":"bdilnt","w":["bed","bee","bell","belt","bend","bet","bite","end","let","lie","line","little","need","net","nine","ten","tent","tie"],"b":["been","beet","beetle","belle","ben","bent","bile","billed","bitten","bled","bleed","blend","blended","blinded","debit","debt","dee","deed","delete","dell","den","dent","die","diet","dine","ebb","edible","edit","eel","elite","idle","indebted","indeed","inlet","intend","intended","intent","led","lee","lend","lenient","lent","libel","lied","lien","linden","lined","linen","lite","needle","netted","nineteen","tee","teen","tell","tend","tenet","tide","tile","title","titled"]},
+  {"id":"zinnia","name":"Zinnia","c":"r","o":"acfnot","w":["art","car","cart","corn","far","for","ran","rat","roof","root","rot","tar"],"b":["acorn","actor","arc","attract","cantor","carat","carrot","carton","cartoon","confront","contra","contract","contractor","cor","corona","craft","croft","factor","fort","franc","fro","front","narrator","nor","raccoon","raft","rant","roar","rotor","tarot","tart","torn","tort","tract","tractor","trot"]},
+  {"id":"lotus","name":"Lotus","c":"d","o":"ahimnp","w":["add","and","dad","dam","damp","did","dim","dip","had","hand","hid","mad","pad"],"b":["aid","amid","din","hind","madam","maid","mid","mind","panda"]},
+  {"id":"clover","name":"Clover","c":"i","o":"deglmp","w":["did","dig","dim","dip","lid","lie","lime","lip","mile","pie","pig"],"b":["die","dill","dime","dipped","gig","giggle","gill","glide","idle","ill","imp","impede","lied","limp","mid","middle","mild","mill","mime","pied","pile","piled","pill","pip","pipe"]},
+  {"id":"buttercup","name":"Buttercup","c":"o","o":"adglmt","w":["dog","doll","dot","goat","gold","good","got","log","lot","moat","mom","oat","odd","old","toad","tomato","too","tool"],"b":["ado","ago","alto","atom","dogma","doom","gloom","goal","load","loom","loot","lotto","modal","mold","moo","mood","moot","motto","tattoo","told","toll","tom","toot","tot","total"]},
+  {"id":"dandelion","name":"Dandelion","c":"r","o":"adefit","w":["after","are","art","dear","deer","ear","far","fire","rat","red","ride","tar","tear","tree"],"b":["adrift","affair","afraid","air","area","aria","arid","attire","dare","dart","defer","deter","dieter","differ","dire","dirt","draft","dread","dried","drier","drift","eater","eerie","era","ere","err","fair","fare","fear","feeder","ferret","fir","fitter","free","fret","friar","fried","ire","irritate","radar","raft","raid","raider","rare","rate","read","reader","rear","reed","reef","refer","referee","reiterate","reread","retire","retired","retreat","rid","rider","rife","rift","rite","tariff","tart","terrier","tier","tire","tired","trade","trader","trait","tread","treat","triad","tried"]},
+  {"id":"bluebell","name":"Bluebell","c":"n","o":"aekotw","w":["ant","know","neat","net","new","noon","not","note","now","one","own","tan","ten","tent","tone","town","want","went"],"b":["anew","anon","ante","antenna","awaken","eaten","keen","knee","knew","knot","known","nana","newt","non","none","nook","onto","taken","tank","teen","tenant","tenet","token","ton","toon","wan","weaken","won","wont"]},
+  {"id":"petunia","name":"Petunia","c":"d","o":"cgilou","w":["cloud","could","did","dig","dog","doll","dug","gold","good","lid","odd","old"],"b":["cod","cold","dill","dull","duo","guild","idol","loud","lucid"]},
+  {"id":"jasmine","name":"Jasmine","c":"a","o":"bdemnr","w":["add","and","are","arm","bad","band","bar","beam","bean","bear","dad","dam","dear","ear","mad","mean","near","ran"],"b":["added","amber","amen","amend","area","arena","armada","armed","baba","babe","bam","ban","banana","bane","banner","barb","barbed","barber","bard","bare","barn","barren","bead","beaded","beamed","beard","bearded","bearer","brad","bran","brand","bread","dab","dame","dare","darn","dead","dean","demand","drab","drama","dread","dream","dreamer","earn","era","errand","madam","madden","made","man","mane","manner","mannered","mar","mare","mead","membrane","nab","name","nana","radar","ram","rand","rare","read","reader","rear","remade","rename","reread"]},
+  {"id":"aster","name":"Aster","c":"w","o":"behnor","w":["bow","brown","how","new","now","own","web","were","when","where","who"],"b":["borrow","borrower","bower","brew","brewer","brow","nowhere","owe","owner","renew","renown","row","rower","wee","whew","woe","won","woo","wore","worn","wren"]},
+  {"id":"magnolia","name":"Magnolia","c":"l","o":"efiotw","w":["elf","let","lie","little","lot","oil","tool","well","will","wolf","wool"],"b":["eel","elite","feel","fell","fellow","felt","file","fill","flee","fleet","flew","flow","foil","folio","follow","fool","fowl","ill","lee","left","life","lift","lit","lite","loft","loot","lotto","low","owl","tell","tile","till","tilt","title","toil","toilet","toll","towel","willow","wilt"]},
+  {"id":"carnation","name":"Carnation","c":"o","o":"dfgrtu","w":["dog","dot","fog","food","foot","for","four","frog","good","got","odd","off","our","out","roof","root","rot","too"],"b":["door","dugout","duo","ford","forgot","fort","fro","gout","odor","oft","outdoor","rod","rotor","rout","toot","tort","tot","tour","tout","trot","trout","tutor"]},
+  {"id":"hibiscus","name":"Hibiscus","c":"e","o":"anprty","w":["are","ate","ear","eat","near","neat","net","pea","pen","pet","pretty","tape","tear","ten","tent","tree","year","yet"],"b":["ante","antenna","ape","apnea","apparent","appear","area","arena","artery","aye","earn","eaten","eater","enter","entry","era","ere","err","eye","pane","paper","parent","partner","patent","pattern","payer","pear","peat","peep","peer","penny","pepper","per","petty","prayer","prepare","prey","rapper","rare","rate","reap","reaper","reappear","rear","rent","rep","repay","repeat","repent","retreat","rye","tanner","taper","tea","tee","teen","teeny","tenant","tenet","treat","treaty","trey","type","yen"]},
+  {"id":"snapdragon","name":"Snapdragon","c":"p","o":"aclmor","w":["camp","cap","clap","cop","lamp","lap","loop","map","mop","pool","pop","ramp","rap"],"b":["carp","clamp","coop","corporal","cramp","crop","opal","pal","palm","pap","papa","papal","par","para","parlor","polar","poll","polo","poor","poplar","pro","prop"]},
+  {"id":"cosmos","name":"Cosmos","c":"t","o":"abcehr","w":["act","art","ate","bat","bath","bet","cart","cat","eat","hat","rat","tar","tear","that","the","there","three","tree"],"b":["acetate","attach","attract","barter","batch","bathe","batter","beat","beater","beet","berth","beta","better","brat","breath","breathe","breather","cabaret","carat","carter","catch","catcher","cater","character","chart","charter","chat","chatter","cheat","cheater","cheetah","crate","crater","create","earth","eater","ether","hart","hatch","hatchet","hate","hater","heart","heartache","heartbeat","hearth","heat","heater","heath","heather","hectare","ratchet","rate","rather","react","rebate","recreate","retract","retreat","tab","tact","tart","tat","tea","teach","teacher","tee","teeth","terrace","thatcher","theater","theta","threat","trace","tracer","tract","treat"]},
+  {"id":"dahlia","name":"Dahlia","c":"n","o":"cehiot","w":["chin","coin","cone","hen","hint","into","net","nine","noon","not","note","once","one","ten","tent","then","tin","tone"],"b":["cent","cocoon","con","connect","connection","content","contention","continent","cotton","entice","ethnic","hence","hone","icon","inch","incite","inn","innocence","innocent","intent","intention","ion","ionic","nice","niche","niece","nineteen","nineteenth","ninth","nit","non","none","notch","notice","notion","onion","onto","tectonic","teen","tenet","tenth","thence","thin","tint","ton","tonic","toon"]},
+  {"id":"lavender","name":"Lavender","c":"a","o":"ceflpt","w":["act","all","apple","ate","cap","cape","cat","clap","eat","fact","fat","flat","lap","leaf","pat","pea","tap","tape"],"b":["accept","ace","acetate","affect","aft","ale","ape","appeal","appellate","apt","cal","calf","call","cattle","face","facet","fall","fatal","fate","feat","fetal","flap","flea","lace","late","leaflet","leap","pace","pact","pal","palace","palate","pale","palette","pallet","pap","papa","papal","peace","peat","petal","place","plate","plea","tact","tale","tall","tat","tea","teal"]}
+];
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+};
+const MAX_LETTERS = 12;
+const RECENT_MAX = 4;
+const RANKS = [[0, 'Seed'], [.01, 'Sprout'], [.25, 'Leafy'], [.5, 'Bud'], [.75, 'Bloom'], [1, 'Super Bloom!']];
+const CHEERS = ['Great job!', 'You got it!', 'Super!', 'Yes!', 'Nice reading!', 'Wow!'];
+
+// Saves are keyed by level id: lf2-found-<id>, lf2-bonus-<id>, lf2-level (id), lf2-sound, lf2-shuffle (shared with
+// every variant on the origin). Unknown or missing saved id falls back to the first level (Daisy).
+const indexOf = id => P.findIndex(p => p.id === id);
+const clean = (v, allowed) => Array.isArray(v) ? [...new Set(v.filter(w => typeof w === 'string' && allowed.includes(w)))] : [];
+let idx = Math.max(0, indexOf(store.get('lf2-level', P[0].id)));
+let found, bonus, outer, typed = '', sound = store.get('lf2-sound', true) !== false, hint = null, msgT, fullT;
+// Recent words on the main screen, newest first: [word, isBonus]. Seeded from the save on level load
+// (saves keep the order words were found in), then each new word goes to the front.
+let recent = [];
+let menuOpen = false;
+
+let shuffleOn = store.get('lf2-shuffle', false) === true;
+const makeOrder = () => shuffleOn ? shuffle(P.map((_, i) => i)) : P.map((_, i) => i);
+let order = makeOrder();
+
+/* ---------- Speech (unchanged from core) ---------- */
+const TTS = ('speechSynthesis' in window) && ('SpeechSynthesisUtterance' in window);
+let voice = null, unlocked = false;
+function pickVoice() {
+  try {
+    const v = speechSynthesis.getVoices();
+    voice = v.find(x => /^en[-_]US/i.test(x.lang) && x.localService) || v.find(x => /^en/i.test(x.lang)) || null;
+  } catch (e) {}
+}
+if (TTS) { pickVoice(); try { speechSynthesis.addEventListener('voiceschanged', pickVoice); } catch (e) {} }
+function speakNow(t) {
+  try {
+    const u = new SpeechSynthesisUtterance(t);
+    u.rate = .8; u.lang = 'en-US'; if (voice) u.voice = voice;
+    speechSynthesis.speak(u);
+  } catch (e) {}
+}
+function say(t) {
+  if (!sound || !TTS) return;
+  try {
+    if (speechSynthesis.speaking || speechSynthesis.pending) { speechSynthesis.cancel(); setTimeout(() => speakNow(t), 60); }
+    else speakNow(t);
+    speechSynthesis.resume();
+  } catch (e) {}
+}
+// Unlock on pointerup (a touch pointerdown is not a user activation in Chrome) or keydown.
+function unlock() {
+  if (unlocked || !TTS) return; unlocked = true;
+  try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (e) {}
+}
+document.addEventListener('pointerup', unlock, { once: true, capture: true });
+document.addEventListener('keydown', unlock, { once: true, capture: true });
+
+/* ---------- Input (unchanged from core: onPress for letters, onTap for actions; see core.html for why) ---------- */
+const CLICK_AFTER_UP_MS = 800;
+function swallowClickAfterPointer(el, fn) {
+  let upAt = -Infinity;
+  el.addEventListener('pointerup', e => { if (!(e.pointerType === 'mouse' && e.button !== 0)) upAt = performance.now(); });
+  el.addEventListener('keydown', () => { upAt = -Infinity; });
+  el.addEventListener('click', () => {
+    if (performance.now() - upAt < CLICK_AFTER_UP_MS) { upAt = -Infinity; return; }
+    if (!el.disabled) fn();
+  });
+}
+function onPress(el, fn) {
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault();
+    fn();
+  });
+  swallowClickAfterPointer(el, fn);
+}
+const TAP_SLOP = 16, TAP_MAX_MS = 1500;
+function onTap(el, fn) {
+  let downId = null, downAt = 0;
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    downId = e.pointerId; downAt = performance.now();
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  el.addEventListener('pointerup', e => {
+    if (e.pointerId !== downId) return;
+    downId = null;
+    if (performance.now() - downAt > TAP_MAX_MS) return;
+    const r = el.getBoundingClientRect();
+    if (e.clientX >= r.left - TAP_SLOP && e.clientX <= r.right + TAP_SLOP &&
+        e.clientY >= r.top - TAP_SLOP && e.clientY <= r.bottom + TAP_SLOP && !el.disabled) { armGhostGuard(el); fn(); }
+  });
+  const drop = e => { if (e.pointerId === downId) downId = null; };
+  el.addEventListener('pointercancel', drop);
+  el.addEventListener('lostpointercapture', drop);
+  swallowClickAfterPointer(el, fn);
+}
+// Ghost-click guard (added in this variant). onTap fires on pointerup, and Chrome hit-tests the click that follows a
+// touch tap AFTER that, so if the action changed what is under the finger, the click lands on something else.
+// Seen in headless Chromium: pointerup:menuBtn, then click:backdrop, so opening the menu closed it again.
+// The same can happen when closing the menu over a letter (click -> core's click path types it) or when the ✕ tile
+// slides into a removed tile's place; those two were not reproduced here, the guard covers them anyway.
+// So for CLICK_AFTER_UP_MS after an onTap action, a click on any OTHER element is swallowed. (A click on the
+// tapped element itself is already swallowed by its own swallowClickAfterPointer.)
+let ghost = null;
+function armGhostGuard(el) { ghost = { el, until: performance.now() + CLICK_AFTER_UP_MS }; }
+document.addEventListener('click', e => {
+  if (!ghost) return;
+  const g = ghost;
+  if (performance.now() > g.until) { ghost = null; return; }
+  ghost = null;
+  if (g.el.contains(e.target)) return;
+  e.preventDefault(); e.stopPropagation();
+}, true);
+// No long-press menu on the game or the menu drawer.
+$('game').addEventListener('contextmenu', e => e.preventDefault());
+$('menu').addEventListener('contextmenu', e => e.preventDefault());
+
+function shuffle(a) {
+  a = a.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+/* ---------- Word tiles ---------- */
+// A fixed pool of MAX_LETTERS tile buttons, created once and only relabelled/hidden on render. Rebuilding them on
+// every letter would drop a finger already resting on a tile (its element would vanish under it).
+// Tiles are actions (onTap, fires on lift inside the tile): a finger resting on a tile while another finger
+// types must not delete a letter, and sliding off takes the tap back.
+// Tile debounce (fix-d). A child's double tap on one tile is two real taps ~100-250 ms apart, and after the first
+// removal the next letter has shifted into that same tile, so the second tap removes a letter the child wanted.
+// Removing the last tile is worse: ✕ moves into its place and the second tap clears the whole word. So a tile or ✕
+// action within TILE_DEBOUNCE_MS of the previous one is ignored. Only the word row is debounced, never the flower
+// letters: "ll" in "little" is two quick deliberate taps. A dropped tap is visible (the letter is still there) and
+// costs one more tap; an extra removal costs retyping, and nothing undoes it.
+const TILE_DEBOUNCE_MS = 250;
+let tileAt = -Infinity;
+const tileAction = fn => () => {
+  const now = performance.now();
+  if (now - tileAt < TILE_DEBOUNCE_MS) return;
+  tileAt = now; fn();
+};
+const tiles = [];
+const tileEmpty = document.createElement('span');
+tileEmpty.className = 'empty'; tileEmpty.textContent = 'Tap the letters 👇';
+$('word').appendChild(tileEmpty);
+for (let i = 0; i < MAX_LETTERS; i++) {
+  const b = document.createElement('button');
+  b.className = 'tile'; b.hidden = true;
+  onTap(b, tileAction(() => removeAt(i)));
+  $('word').appendChild(b); tiles.push(b);
+}
+const clearTile = document.createElement('button');
+clearTile.className = 'tile x'; clearTile.id = 'clear'; clearTile.hidden = true;
+clearTile.textContent = '✕'; clearTile.setAttribute('aria-label', 'Clear the word');
+onTap(clearTile, tileAction(clearWord));
+$('word').appendChild(clearTile);
+
+function renderTiles(p) {
+  tiles.forEach((b, i) => {
+    const ch = typed[i];
+    if (ch === undefined) { b.hidden = true; return; }
+    if (b.textContent !== ch) b.textContent = ch;
+    b.className = 'tile' + (ch === p.c ? ' c' : '');
+    b.setAttribute('aria-label', 'Take out ' + ch);
+    b.hidden = false;
+  });
+  clearTile.hidden = !typed.length;
+  tileEmpty.hidden = !!typed.length;
+}
+
+/* ---------- Game ---------- */
+const listeners = [];
+let foundKey = null, recentKey = null, notifying = false;
+function readSaved() {
+  const p = P[idx];
+  found = clean(store.get('lf2-found-' + p.id, []), p.w);
+  bonus = clean(store.get('lf2-bonus-' + p.id, []), p.b);
+}
+// Merge on save (core-fix): a stale tab adds to what another tab found instead of overwriting it.
+function saveWord(kind, list, allowed, w) {
+  const key = 'lf2-' + kind + '-' + P[idx].id;
+  const merged = clean([...clean(store.get(key, []), allowed), ...list, w], allowed);
+  store.set(key, merged);
+  return merged;
+}
+window.addEventListener('storage', e => {
+  const id = P[idx].id;
+  if (e.key === null || e.key === 'lf2-found-' + id || e.key === 'lf2-bonus-' + id) { readSaved(); render(); }
+  if (menuOpen && (e.key === null || (e.key || '').startsWith('lf2-found-'))) renderLevels();
+});
+function load() {
+  const p = P[idx];
+  readSaved();
+  // The recent order is saved per level (fix-d), so a bonus word found last is still first after a reload.
+  // Without a save (older data), fall back to: saves are in found order, tail newest, targets then bonus.
+  const saved = store.get('lf2-recent-' + p.id, null);
+  recent = Array.isArray(saved) ? saved.filter(r => Array.isArray(r) && typeof r[0] === 'string').map(r => [r[0], r[1] ? 1 : 0]).slice(0, RECENT_MAX)
+    : [...found.slice().reverse().map(w => [w, 0]), ...bonus.slice().reverse().map(w => [w, 1])].slice(0, RECENT_MAX);
+  outer = p.o.split(''); typed = ''; hint = null; foundKey = null; recentKey = null;
+  $('pnum').textContent = 'Level ' + p.name;
+  store.set('lf2-level', p.id);
+  drawFlower(); render(); flash('Every word needs the yellow letter!');
+  if (menuOpen) renderLevels();
+}
+function drawFlower() {
+  const f = $('flower'); f.innerHTML = ''; const p = P[idx];
+  const add = (ch, x, y, cls) => {
+    const b = document.createElement('button');
+    b.className = cls; b.textContent = ch; b.style.left = x + '%'; b.style.top = y + '%';
+    b.setAttribute('aria-label', 'letter ' + ch);
+    onPress(b, () => type(ch));
+    f.appendChild(b);
+  };
+  add(p.c, 50, 50, 'm');
+  outer.forEach((ch, i) => { const a = (i * 60 - 90) * Math.PI / 180; add(ch, 50 + 33 * Math.cos(a), 50 + 33 * Math.sin(a), 'o'); });
+}
+function renderRecent() {
+  // A reset in another tab can take words away: only show words that are still saved.
+  recent = recent.filter(([w, b]) => (b ? bonus : found).includes(w));
+  const key = recent.map(r => r.join()).join('|');
+  if (key === recentKey) return;
+  recentKey = key;
+  const el = $('recent'); el.innerHTML = '';
+  if (!recent.length) { el.innerHTML = '<span class="empty">🌱 Your words grow here</span>'; return; }
+  recent.forEach(([w, isBonus]) => {
+    const s = document.createElement('button');
+    s.textContent = w;              // no ⭐ here (fix-d): pink already marks a bonus, and the star cost a chip
+    if (isBonus) s.className = 'bonus';
+    s.setAttribute('aria-label', 'Hear ' + w);
+    onTap(s, () => say(w));
+    el.appendChild(s);
+  });
+  // Never leave a chip cut off at the edge (a half-visible button is a bad tap target): drop the oldest.
+  while (el.children.length > 1 && el.scrollWidth > el.clientWidth + 1) el.lastElementChild.remove();
+}
+function render() {
+  const p = P[idx];
+  renderTiles(p);
+  const n = found.length, t = p.w.length, fr = n / t, done = n === t;
+  $('count').textContent = n + ' of ' + t;
+  $('wordsWord').hidden = done;   // "Super Bloom! · 18 of 18 words" was ellipsized at 360 wide (fix-d)
+  $('rank').textContent = RANKS.filter(r => fr >= r[0]).pop()[1];
+  $('stem').setAttribute('height', Math.round(fr * 52)); $('stem').setAttribute('y', 60 - Math.round(fr * 52));
+  $('leafL').setAttribute('opacity', fr >= .25 ? 1 : 0); $('leafR').setAttribute('opacity', fr >= .5 ? 1 : 0);
+  $('bloom').setAttribute('opacity', fr >= 1 ? 1 : fr >= .75 ? .45 : 0);
+  renderRecent();
+  // When the level is complete there is nothing left to hint, so the hint row becomes "Next flower ▶".
+  $('hints').hidden = done; $('nextMain').hidden = !done;
+  const key = found.join() + '|' + bonus.join();
+  if (key !== foundKey) {
+    foundKey = key;
+    const fl = $('found');
+    fl.innerHTML = (found.length || bonus.length) ? '' : '<p class="empty">No words yet.</p>';
+    [...found.map(w => [w, 0]), ...bonus.map(w => [w, 1])].sort((a, b) => a[0] < b[0] ? -1 : 1).forEach(([w, isBonus]) => {
+      const s = document.createElement('button');
+      s.textContent = (isBonus ? '⭐ ' : '') + w;
+      if (isBonus) s.className = 'bonus';
+      s.setAttribute('aria-label', 'Hear ' + w);
+      onTap(s, () => say(w));
+      fl.appendChild(s);
+    });
+  }
+  $('bonusnote').hidden = !bonus.length;
+  const left = {};
+  p.w.filter(w => !found.includes(w)).forEach(w => left[w.length] = (left[w.length] || 0) + 1);
+  const keys = Object.keys(left);
+  $('left').innerHTML = keys.length ? '<span>Still hiding:</span>' + keys.map(k => '<span><b>' + left[k] + '</b> with ' + k + ' letters</span>').join('') : '<span><b>You found them all!</b></span>';
+  if (hint && found.includes(hint.w)) hint = null;
+  fitHint(hint ? hint.w.split('').map((ch, i) => i < hint.k ? ch : '_').join(' ') : '');
+  // Re-entrancy guard (core-fix): listeners are not called again from inside a listener.
+  if (notifying) return;
+  notifying = true;
+  try { listeners.forEach(fn => { try { fn(Game.state()); } catch (e) {} }); } finally { notifying = false; }
+}
+// The hint must show every blank: one blank too few tells the child the wrong word length. At 360 wide a
+// 6-letter word did not fit between Peek and Hear (fix-d), so shrink the text until it fits instead of clipping.
+function fitHint(text) {
+  const el = $('hintline');
+  el.textContent = text; el.style.fontSize = ''; el.style.letterSpacing = '';
+  if (!text || el.scrollWidth <= el.clientWidth) return;
+  el.style.letterSpacing = '0';
+  let px = parseFloat(getComputedStyle(el).fontSize);
+  while (px > 12 && el.scrollWidth > el.clientWidth) { px -= 1; el.style.fontSize = px + 'px'; }
+}
+function flash(t, bad) {
+  $('msg').textContent = t; $('msg').className = 'msg' + (bad ? ' no' : '');
+  clearTimeout(msgT); msgT = setTimeout(() => { $('msg').textContent = ''; }, 2600);
+}
+function type(ch) {
+  if (typed.length >= MAX_LETTERS) {
+    const w = $('word'); w.classList.remove('full'); void w.offsetWidth; w.classList.add('full');
+    clearTimeout(fullT); fullT = setTimeout(() => w.classList.remove('full'), 400);
+    flash('That is the most letters! Tap Check.', 1);
+    return;
+  }
+  typed += ch; render();
+}
+function back() { typed = typed.slice(0, -1); render(); }               // hardware Backspace only
+function removeAt(i) { if (i >= typed.length) return; typed = typed.slice(0, i) + typed.slice(i + 1); render(); }
+function clearWord() { typed = ''; render(); }
+function addRecent(w, isBonus) {
+  recent = [[w, isBonus], ...recent.filter(r => r[0] !== w)].slice(0, RECENT_MAX);
+  store.set('lf2-recent-' + P[idx].id, recent);
+}
+function check() {
+  const p = P[idx], w = typed; if (!w) return; typed = '';
+  let speak = null;
+  if (w.length < 3) flash('Words need 3 letters or more.', 1);
+  else if (!w.includes(p.c)) flash('Use the yellow letter!', 1);
+  else if (found.includes(w) || bonus.includes(w)) flash('You already found ' + w + '!', 1);
+  else if (p.b.includes(w)) { bonus = saveWord('bonus', bonus, p.b, w); addRecent(w, 1); flash('Bonus word! ' + w); speak = w; }
+  else if (p.w.includes(w)) {
+    found = saveWord('found', found, p.w, w); addRecent(w, 0);
+    if (found.length === p.w.length) { flash('Super Bloom! You found them all!'); speak = w + '! You found every word!'; }
+    else { flash(CHEERS[Math.random() * CHEERS.length | 0] + ' ' + w); speak = w; }
+  }
+  else flash('Hmm, try a different word.', 1);
+  render();          // update the screen first, then speak
+  if (speak) say(speak);
+}
+function pickHint() {
+  const left = P[idx].w.filter(w => !found.includes(w)); if (!left.length) return null;
+  if (hint && left.includes(hint.w)) return hint;
+  return { w: left[Math.random() * left.length | 0], k: 1 };
+}
+function hear() { hint = pickHint(); if (!hint) return; render(); if (sound) say(hint.w); else flash('Turn sound on to hear it.', 1); }
+function peek() { const had = hint; hint = pickHint(); if (!hint) return; if (had === hint && hint.k < hint.w.length - 1) hint.k++; render(); }
+function mix() { outer = shuffle(outer); drawFlower(); }
+function goIndex(i) { idx = i; load(); }
+// Next/prev follow the current order (baked, or this startup's shuffle), wrapping at the ends.
+function step(d) { const n = order.length; goIndex(order[(order.indexOf(idx) + d + n) % n]); }
+function setShuffle(on) {
+  shuffleOn = !!on; store.set('lf2-shuffle', shuffleOn);
+  order = makeOrder();   // stays on the current level; only what comes next changes
+  render();
+  setShufBtn(); if (menuOpen) renderLevels();
+}
+
+onTap($('hear'), hear);
+onTap($('peek'), peek);
+onTap($('enter'), check);
+onTap($('mix'), mix);
+onTap($('nextMain'), () => { lockGame(); step(1); });   // lockGame is defined with the menu below
+onTap($('next'), () => { step(1); closeMenu(); });
+onTap($('prev'), () => { step(-1); closeMenu(); });
+
+const sb = $('sound');
+function setSound() {
+  if (!TTS) { sb.textContent = '🔇 No voice here'; sb.disabled = true; $('hear').hidden = true; return; }
+  sb.textContent = sound ? '🔊 Sound on' : '🔇 Sound off'; sb.setAttribute('aria-pressed', sound);
+}
+onTap(sb, () => { sound = !sound; store.set('lf2-sound', sound); setSound(); if (sound) say('Sound on'); });
+setSound();
+function setShufBtn() { $('shuf').setAttribute('aria-pressed', shuffleOn); $('shuf').textContent = 'Mix up the flowers 🔀 ' + (shuffleOn ? 'On' : 'Off'); }
+onTap($('shuf'), () => setShuffle(!shuffleOn));
+setShufBtn();
+
+/* ---------- Menu drawer ---------- */
+// Closed: [hidden] (display:none). Open: the backdrop covers the whole game and #game is inert, so no letter
+// tap or focus can reach the game. Closes with ✕, a tap on the backdrop, or Escape.
+function renderLevels() {
+  const box = $('levels'); box.innerHTML = '';
+  Game.order().forEach(id => {
+    const p = P[indexOf(id)], pr = Game.progress(id), done = pr.found === pr.total;
+    const b = document.createElement('button');
+    b.innerHTML = '<span></span><small></small>';
+    b.firstChild.textContent = (done ? '🌸 ' : '') + p.name;
+    b.lastChild.textContent = done ? '✓' : pr.found + '/' + pr.total;
+    if (done) b.className = 'done';
+    if (id === P[idx].id) b.setAttribute('aria-current', 'true');
+    b.setAttribute('aria-label', p.name + ', ' + pr.found + ' of ' + pr.total + ' words');
+    onTap(b, () => { Game.goTo(id); closeMenu(); });
+    box.appendChild(b);
+  });
+}
+function openMenu() {
+  if (menuOpen) return;
+  menuOpen = true;
+  renderLevels();
+  $('menu').hidden = false; $('game').inert = true;
+  $('menuBtn').setAttribute('aria-expanded', 'true');
+  $('sheetbody').scrollTop = 0;
+  try { $('close').focus({ preventScroll: true }); } catch (e) {}
+}
+// Post-close lockout (fix-d, as fix-b). A child's double tap on the backdrop or a level button: tap 1 closes the
+// menu and tap 2's pointerdown lands on what the backdrop covered -- in D that is Check (submits and wipes the
+// half-built word), the ✕ tile (clears it) or Hear. The click guard above cannot stop it: it is a real tap. So for
+// LOCK_MS after the menu closes or Next flower changes the level, pointerdowns inside #game are dropped before
+// any game handler sees them. onTap then never sees the down, so its pointerup does nothing either.
+const LOCK_MS = 300;
+let lockUntil = 0;
+const lockGame = () => { lockUntil = performance.now() + LOCK_MS; };
+window.addEventListener('pointerdown', e => {
+  if (performance.now() < lockUntil && e.target instanceof Node && $('game').contains(e.target)) { e.stopPropagation(); e.preventDefault(); }
+}, true);
+function closeMenu() {
+  if (!menuOpen) return;
+  lockGame();
+  menuOpen = false;
+  $('menu').hidden = true; $('game').inert = false;
+  $('menuBtn').setAttribute('aria-expanded', 'false');
+  try { $('menuBtn').focus({ preventScroll: true }); } catch (e) {}
+}
+onTap($('menuBtn'), openMenu);
+onTap($('close'), closeMenu);
+onTap($('backdrop'), closeMenu);
+
+// Physical keyboard. While the menu is open, Escape closes it and no key reaches the game: the event is
+// stopped in the capture phase at document, before the game handler below. Enter/Space on a focused menu
+// button still work, because a button's activation is a default action, not a listener.
+document.addEventListener('keydown', e => {
+  if (!menuOpen) return;
+  if (e.key === 'Escape') { e.preventDefault(); closeMenu(); }
+  e.stopPropagation();
+}, true);
+// Otherwise as core: Enter = Check, Space = Mix, Backspace = delete the last letter, letters type.
+let tabFocused = null, lastInputKey = false;
+document.addEventListener('pointerdown', () => { lastInputKey = false; tabFocused = null; }, true);
+document.addEventListener('keydown', e => { if (e.key === 'Tab') lastInputKey = true; }, true);
+document.addEventListener('focusin', e => { tabFocused = lastInputKey ? e.target : null; });
+document.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase(), p = P[idx], t = e.target;
+  if ((k === 'enter' || k === ' ') && t && t.tagName === 'BUTTON' && t === tabFocused) return;
+  if (k === 'enter') { e.preventDefault(); check(); }
+  else if (k === 'backspace') { e.preventDefault(); back(); }
+  else if (k === ' ') { e.preventDefault(); mix(); }
+  else if (k.length === 1 && (k === p.c || p.o.includes(k))) { if (!e.repeat) type(k); }
+});
+
+/* ---------- API (same as core) ---------- */
+window.Game = {
+  levels: P.map(p => ({ id: p.id, name: p.name })),
+  goTo(id) { const i = indexOf(id); if (i < 0) return false; goIndex(i); return true; },
+  state() {
+    const p = P[idx];
+    return { id: p.id, name: p.name, index: order.indexOf(idx), typed, found: found.slice(), bonus: bonus.slice(), total: p.w.length, done: found.length === p.w.length };
+  },
+  progress(id) { const p = P[indexOf(id)]; if (!p) return null; return { found: clean(store.get('lf2-found-' + p.id, []), p.w).length, total: p.w.length }; },
+  onChange(fn) { listeners.push(fn); },
+  get shuffle() { return shuffleOn; },
+  setShuffle,
+  order() { return order.map(i => P[i].id); }
+};
+
+load();
+</script>
+</body>
+</html>
