@@ -59,21 +59,31 @@ button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-web
 .top svg{flex:none}
 .top .count{font-family:var(--display);font-weight:800;font-size:1.25rem;color:var(--ink);white-space:nowrap}
 /* Recent finds: newest first, a single row; chips that would not fit are dropped, never clipped. */
-.recent{display:flex;gap:6px;justify-content:center;min-height:38px;align-items:center;overflow:hidden;flex-wrap:nowrap}
-.recent button{flex:none;font:700 1.15rem var(--read);color:var(--ink);background:var(--leaf-soft);border:none;border-radius:12px;padding:4px 12px;min-height:36px;cursor:pointer;touch-action:none}
+.recent{display:flex;gap:6px;justify-content:center;height:38px;align-items:center;overflow:hidden;flex-wrap:nowrap}
+/* Fixed row height and an explicit line-height (rev-f #4): the web Andika's taller line box can no longer grow
+   the row when the first word is found, which would shrink or move the flower mid-game. */
+.recent button{flex:none;font:700 1.15rem/1.2 var(--read);color:var(--ink);background:var(--leaf-soft);border:none;border-radius:12px;padding:4px 12px;height:36px;cursor:pointer;touch-action:none}
 .recent button.bonus{background:var(--petal);color:var(--petal-ink)}
 .recent .empty{font-size:1rem}
 .recent button:focus-visible{outline:4px solid var(--leaf);outline-offset:2px}
-/* From B: status row above the word holds the peek hint ("t _ _") or, once every word is found, the big
-   Next flower button. Fixed height so the flower never jumps. */
-.status{height:52px;display:flex;align-items:center;justify-content:center;min-width:0;overflow:hidden}
-.status .hintline{font-size:1.6rem;letter-spacing:.15em;font-weight:700;min-height:0;white-space:nowrap;color:var(--leaf)}
-.nextbig{font:800 1.3rem var(--display);height:52px;padding:0 24px;border-radius:999px;border:3px solid var(--leaf);background:var(--leaf);color:var(--card);cursor:pointer;touch-action:none}
+/* From B: the status band holds the peek hint ("t _ _") or, once every word is found, the big Next flower
+   button. fix-f (operator: "center the flower more... too crowded on the bottom"): it is no longer a 52px row
+   above the word, which left an empty band there whenever no hint showed and pushed the flower down. It now
+   overlays the top --rsv of the stage, and the flower is sized so the same --rsv stays free below it, so the
+   flower is centred between the message and the bar and nothing moves when a hint or Next flower appears.
+   No overflow:hidden, so Next flower's focus ring is not clipped (rev-f #7). */
+.status{position:absolute;top:0;left:0;right:0;height:var(--rsv);display:flex;align-items:center;justify-content:center;pointer-events:none}
+.status .hintline{font-size:1.6rem;line-height:1;letter-spacing:.15em;font-weight:700;min-height:0;white-space:nowrap;color:var(--leaf)}
+.nextbig{pointer-events:auto;font:800 1.3rem var(--display);height:var(--rsv);padding:0 24px;border-radius:999px;border:3px solid var(--leaf);background:var(--leaf);color:var(--card);cursor:pointer;touch-action:none}
 .nextbig:focus-visible,.helper:focus-visible{outline:4px solid var(--leaf);outline-offset:3px}
 /* From B: the stage takes every pixel left over; the flower is the largest square that fits it. */
-.stage{flex:1 1 0;min-height:0;position:relative;container-type:size}
-/* Peek and Hear sit in the stage's bottom corners, beside the flower's bottom petals, near the thumbs. */
-.helper{position:absolute;bottom:calc(50% - min(150px,50cqw,50cqh));width:max(56px,min(17cqw,17cqh,76px));aspect-ratio:1;border-radius:50%;border:3px solid var(--line);
+.stage{flex:1 1 0;min-height:0;position:relative;container-type:size;--rsv:48px;
+  /* Flower side: capped at 300px (operator), and short enough to leave --rsv clear above (status band) and
+     below (breathing room over the bar), plus 8px each side so Next flower never touches the top petal. Only a short screen (360x640) is shrunk by this. */
+  --fs:min(300px,100cqw,calc(100cqh - 2 * var(--rsv) - 16px))}
+/* Peek and Hear sit in the stage's bottom corners beside the lower petals, lifted 4% of the flower off its
+   bottom edge (more would hit the lower side petals), near the thumbs. */
+.helper{position:absolute;bottom:calc(50% - var(--fs) / 2 + var(--fs) * .04);width:max(56px,min(17cqw,17cqh,76px));aspect-ratio:1;border-radius:50%;border:3px solid var(--line);
   background:var(--card);color:var(--ink);cursor:pointer;touch-action:none;padding:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
 .helper .i{font-size:1.6rem}
 .helper .t{font:800 .8rem var(--display);margin-top:2px}
@@ -104,7 +114,7 @@ button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-web
 /* touch-action:none on the flower: no pan, zoom or double-tap gesture can start on the letters. */
 /* Operator request: the flower is capped at 300px like the original letter-flower.html (min(300px,86vw)), so
    letters are ~93px; it is centred in the stage, which keeps the freed height above and below it. */
-.flower{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(300px,100cqw,100cqh);aspect-ratio:1;touch-action:none;container-type:inline-size}
+.flower{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:var(--fs);aspect-ratio:1;touch-action:none;container-type:inline-size}
 /* `translate` (a transform, separate from `transform`) carries the Mix move, so it never fights the centring
    translate or the :active press scale. Hit-testing follows it, so a tap mid-move types the letter under the finger. */
 .flower button{position:absolute;width:31%;aspect-ratio:1;border-radius:50%;border:none;font:700 15cqw var(--read);cursor:pointer;transform:translate(-50%,-50%);transition:transform .12s,translate .32s ease-in-out;touch-action:none;padding:0 0 .12em}
@@ -117,7 +127,9 @@ button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-web
 @keyframes chipIn{from{transform:scale(.6)}}
 @keyframes wordIn{from{opacity:0}}
 .flower button.o{background:var(--petal);color:var(--petal-ink)}
-.flower button.m{background:var(--center);color:var(--center-ink);box-shadow:0 0 0 6px var(--leaf-soft)}
+.flower button.m{background:var(--center);color:var(--center-ink);box-shadow:0 0 0 6px var(--leaf-soft);z-index:1}
+/* rev-f #3: the centre letter paints and hit-tests above the petals, so a petal sliding across it during Mix
+   neither hides it nor takes a tap aimed at it. */
 .flower button:active{transform:translate(-50%,-50%) scale(.9)}
 .flower button:focus-visible,.btn:focus-visible,.chip:focus-visible,.found button:focus-visible{outline:4px solid var(--leaf);outline-offset:3px}
 .actions{display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
@@ -181,7 +193,8 @@ button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-web
 .steps .chip{flex:1;min-height:48px}
 .how{margin:0;padding-left:1.3em;font-size:1.1rem;line-height:1.45}
 @media (prefers-reduced-motion:reduce){.drawer{animation:none}}
-@media (prefers-reduced-motion:reduce){.grow,.flower button{transition:none}.word .caret{animation:none}.word.full{animation:none}}
+@media (prefers-reduced-motion:reduce){.grow,.flower button{transition:none}.word .caret{animation:none}.word.full{animation:none}
+  .flower button:active{transform:translate(-50%,-50%)}}   /* rev-f #5: no press scale either */
 /* Reduced motion: no movement or scaling (Mix jumps, see mix()); chips and taps keep only a plain opacity change. */
 @media (prefers-reduced-motion:reduce){
   .recent button.new{animation:fadeIn .2s ease-out}.recent button.new>span{animation:none}
@@ -216,15 +229,14 @@ button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-web
   <div class="recent" id="recent" aria-label="Words you just found"></div>
 
   <!-- Lower half from B: hint row (or Next flower) above the word, big flower, Peek/Hear corners, thumb bar. -->
-  <div class="status">
-    <div class="hintline" id="hintline" aria-live="polite"></div>
-    <button class="nextbig" id="nextbig" hidden>Next flower ▶</button>
-  </div>
-
   <div class="word" id="word" aria-live="polite"></div>
   <div class="msg" id="msg" role="status">Every word needs the yellow letter!</div>
 
   <div class="stage">
+    <div class="status">
+      <div class="hintline" id="hintline" aria-live="polite"></div>
+      <button class="nextbig" id="nextbig" hidden>Next flower ▶</button>
+    </div>
     <div class="flower" id="flower"></div>
     <button class="helper" id="peek" aria-label="Peek a letter"><span class="i" aria-hidden="true">👀</span><span class="t">Peek</span></button>
     <button class="helper" id="hear" aria-label="Hear a word"><span class="i" aria-hidden="true">👂</span><span class="t">Hear</span></button>
@@ -499,7 +511,7 @@ function drawFlower() {
     const b = document.createElement('button');
     b.className = cls; b.textContent = ch; b.style.left = x + '%'; b.style.top = y + '%';
     b.setAttribute('aria-label', 'letter ' + ch);
-    onPress(b, () => { type(ch); pulse(b); });
+    onPress(b, () => { if (type(ch)) pulse(b); });
     f.appendChild(b);
   };
   add(p.c, 50, 50, 'm');
@@ -509,10 +521,12 @@ function petalAt(i) { const a = (i * 60 - 90) * Math.PI / 180; return [50 + 33 *
 // Letter-tap pulse (operator request). Epilepsy-safe: one pulse per tap, and at most one pulse per PULSE_GAP_MS
 // across all letters, so even 8 taps a second give no more than 3 flashes a second. Taps between pulses still
 // type; only the visual is skipped. It never delays or swallows input (type() has already run).
+// The 12-letter red shake in type() shares the same budget (rev-f #1), so the two together stay at 3 a second.
 const PULSE_GAP_MS = 340;
 let lastPulse = -Infinity;
+function flashAllowed() { const now = performance.now(); if (now - lastPulse < PULSE_GAP_MS) return false; lastPulse = now; return true; }
 function pulse(b) {
-  const now = performance.now(); if (now - lastPulse < PULSE_GAP_MS) return; lastPulse = now;
+  if (!flashAllowed()) return;
   b.classList.remove('tap'); void b.offsetWidth; b.classList.add('tap');
 }
 document.addEventListener('animationend', e => { if (e.animationName === 'tapGlow' || e.animationName === 'tapFade') e.target.classList.remove('tap'); });
@@ -612,14 +626,20 @@ function flash(t, bad) {
   $('msg').textContent = t; $('msg').className = 'msg' + (bad ? ' no' : '');
   clearTimeout(msgT); msgT = setTimeout(() => { $('msg').textContent = ''; }, 2600);
 }
+// Returns true if the letter was added. At 12 letters the word shakes red, at most once per PULSE_GAP_MS
+// (rev-f #1: a child mashing a petal at 6-8 taps a second used to restart it every tap).
 function type(ch) {
   if (typed.length >= MAX_LETTERS) {
-    const w = $('word'); w.classList.remove('full'); void w.offsetWidth; w.classList.add('full');
-    clearTimeout(fullT); fullT = setTimeout(() => w.classList.remove('full'), 400);
+    const w = $('word');
+    if (flashAllowed()) {
+      w.classList.remove('full'); void w.offsetWidth; w.classList.add('full');
+      clearTimeout(fullT); fullT = setTimeout(() => w.classList.remove('full'), 400);
+    }
     flash('Too many! Tap Check or Back.', 1);
-    return;
+    return false;
   }
   typed += ch; render();
+  return true;
 }
 function back() { typed = typed.slice(0, -1); render(); }
 function check() {
@@ -761,7 +781,14 @@ onTap($('backdrop'), closeMenu);
 // From B: Next flower on the main screen once the level is complete. It hides as the level changes, so the
 // tap's follow-up click would land on whatever is now under the finger: the ghost guard eats it, and the
 // lockout drops a second tap of a double-tap (one double-tap = one level).
-onTap($('nextbig'), () => { armGhostGuard(); lockGame(); step(1); });
+// rev-f #6: a slow double-tap (350-500ms, past LOCK_MS) skipped two levels when the next one was also complete.
+// Next flower alone ignores a repeat within NEXT_REPEAT_MS; letters are not held up by this.
+const NEXT_REPEAT_MS = 800;
+let nextAt = -Infinity;
+onTap($('nextbig'), () => {
+  const now = performance.now(); if (now - nextAt < NEXT_REPEAT_MS) return; nextAt = now;
+  armGhostGuard(); lockGame(); step(1);
+});
 onTap($('shuffle'), () => { setShuffle(!shuffleOn); drawShuffle(); drawLevels(); });
 
 const sb = $('sound');
