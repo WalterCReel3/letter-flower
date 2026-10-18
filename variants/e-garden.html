@@ -80,6 +80,9 @@ body{padding:0}
 .btn.hint .ic{font-size:1.5rem;line-height:1.1}
 .mid{min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:64px}
 .word{min-height:0;height:40px;font-size:2.2rem;line-height:1;letter-spacing:.04em;white-space:nowrap;overflow:hidden;max-width:100%}
+/* At line-height:1 Andika's ink sits low (about .13em to 1.16em down the line), so at the full 36px the
+   g/p/y descenders ran ~2px past the 40px row and were cut. Lift the letters (not the caret) to centre their ink. */
+.word span:not(.caret){position:relative;top:-.05em}
 .word .c{color:var(--leaf)}
 .word .caret{display:inline-block;width:3px;height:1em;background:var(--ink);margin-left:3px;animation:blink 1s steps(1) infinite;vertical-align:-.12em}
 .word.full{animation:full .35s}
