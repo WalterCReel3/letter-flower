@@ -96,10 +96,13 @@ button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-web
 .stage{flex:1 1 0;min-height:0;position:relative;container-type:size;--rsv:48px;
   /* Flower side: capped at 300px (operator), and short enough to leave --rsv clear above (status band) and
      below (breathing room over the bar), plus 8px each side so Next flower never touches the top petal. Only a short screen (360x640) is shrunk by this. */
-  --fs:min(300px,100cqw,calc(100cqh - 2 * var(--rsv) - 16px))}
-/* Peek and Hear sit in the stage's bottom corners beside the lower petals, lifted 4% of the flower off its
-   bottom edge (more would hit the lower side petals), near the thumbs. */
-.helper{position:absolute;bottom:calc(50% - var(--fs) / 2 + var(--fs) * .04);width:max(56px,min(17cqw,17cqh,76px));aspect-ratio:1;border-radius:50%;border:3px solid var(--line);
+  /* --fsfit is set by placeHelpers() only when Peek/Hear could not otherwise keep their buffer and clear the bar. */
+  --fs:min(300px,100cqw,calc(100cqh - 2 * var(--rsv) - 16px),var(--fsfit,300px))}
+/* Peek and Hear (operator, helpers-pos: "nudged lower but don't have their own full row... referenced from the
+   flower with at least a half circle of a petal's buffer"): two round buttons in the stage's bottom corners,
+   below and outside the lower side petals. Their bottom edge sits --hb below the flower's centre; placeHelpers()
+   sets --hb so every petal is at least half a petal's diameter away edge to edge. The fallback is fix-f's spot. */
+.helper{position:absolute;bottom:calc(50% - var(--hb,calc(var(--fs) * .46)));width:max(56px,min(17cqw,17cqh,76px));aspect-ratio:1;border-radius:50%;border:3px solid var(--line);
   background:var(--card);color:var(--ink);cursor:pointer;touch-action:none;padding:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
 .helper .i{font-size:1.6rem}
 .helper .t{font:800 .8rem var(--display);margin-top:2px}
@@ -641,6 +644,38 @@ function fitAll() {
     return lvl.scrollWidth > lvl.clientWidth || right > lvl.getBoundingClientRect().right - TITLE_SLACK;
   });
   fitText(w, w, () => rowOverflows(w, -2));   // keep 2px clear of both edges
+  placeHelpers();
+}
+// helpers-pos: put Peek/Hear (left:0 / right:0 of the stage) as high as they can go while every petal circle
+// is >= half a petal's diameter from them edge to edge, and keep them >= HELPER_BAR_GAP above the bar. If that
+// cannot fit, shrink the flower (--fsfit), never below letters of MIN_LETTER px. Geometry from drawFlower and
+// the CSS: petals are 31% of the flower, centred 33% from its middle at petalAt(); the flower is the stage's centre.
+const HELPER_BAR_GAP = 16, MIN_LETTER = 64;
+function placeHelpers() {
+  const st = document.querySelector('.stage'), pk = $('peek');
+  st.style.removeProperty('--fsfit');
+  const S = st.getBoundingClientRect(), fs0 = $('flower').offsetWidth, h = pk.offsetWidth;
+  if (!S.height || !fs0 || !h) return;
+  const room = document.querySelector('.bar').getBoundingClientRect().top - HELPER_BAR_GAP - (S.top + S.height / 2);
+  const hx = S.width / 2 - h / 2;          // helper centre, sideways from the flower centre
+  const drop = fs => {                     // helper bottom below the flower centre, for flower size fs
+    const d = .31 * fs, R = d + h / 2 + 1; // centre distance for a d/2 edge gap, +1px for rounding
+    // never higher than "below" the lower side petals: centre at or under their bottom edge (petalAt(1) is lower right)
+    let y = (petalAt(1)[1] - 50) / 100 * fs + d / 2;
+    for (let i = 0; i < 6; i++) {
+      const [x, yy] = petalAt(i), px = Math.abs((x - 50) / 100 * fs), py = (yy - 50) / 100 * fs, dx = hx - px;
+      if (Math.abs(dx) < R) y = Math.max(y, py + Math.sqrt(R * R - dx * dx));
+    }
+    return y + h / 2;
+  };
+  let fs = fs0;
+  if (drop(fs) > room) {
+    let lo = MIN_LETTER / .31, hi = fs0;
+    if (lo < hi) { for (let k = 0; k < 20; k++) { const m = (lo + hi) / 2; if (drop(m) <= room) lo = m; else hi = m; } }
+    fs = Math.min(fs0, lo);
+    st.style.setProperty('--fsfit', fs + 'px');
+  }
+  st.style.setProperty('--hb', drop(fs) + 'px');
 }
 // Re-measure when the size or the font changes: the web font (display=swap) can arrive after the first
 // layout and is wider than the fallback, which would clip recent chips or the level name.
