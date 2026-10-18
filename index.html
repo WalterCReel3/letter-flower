@@ -17,23 +17,15 @@
 <link rel="icon" href="./icons/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="./icons/icon-192.png">
 <meta name="mobile-web-app-capable" content="yes">
-<!-- FONTS. Target: self-hosted woff2 in ./fonts/ (SIL OFL), so the installed app looks the same offline.
-     The woff2 files are not in the tree yet (the build sandbox has no network; see fonts/README.txt for the
-     download), so for now the Google Fonts link below stays and sw.js caches what it serves for offline use.
-     Once fonts/*.woff2 exist: delete the two Google <link> lines and un-comment the <style> block after them.
-     Steps in fonts/README.txt. -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<!-- Loaded without blocking render (media=print, then all once it arrives), so a network that silently drops
-     Google cannot hold the screen blank; the game shows in system fonts and swaps (display=swap, refit). -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&family=Baloo+2:wght@600;800&display=swap" media="print" onload="this.media='all'">
-<!--
+<!-- FONTS: self-hosted woff2 in ./fonts/ (SIL OFL, licence texts beside them), precached by sw.js so the
+     installed app looks the same offline. font-display:swap: the game shows at once in a system font and
+     refits when these arrive (see refit). A change to a font file needs sw.js VERSION bumped. -->
 <style>
 @font-face{font-family:"Andika";font-style:normal;font-weight:400;font-display:swap;src:url("./fonts/andika-latin-400.woff2") format("woff2")}
 @font-face{font-family:"Andika";font-style:normal;font-weight:700;font-display:swap;src:url("./fonts/andika-latin-700.woff2") format("woff2")}
 @font-face{font-family:"Baloo 2";font-style:normal;font-weight:600;font-display:swap;src:url("./fonts/baloo2-latin-600.woff2") format("woff2")}
 @font-face{font-family:"Baloo 2";font-style:normal;font-weight:800;font-display:swap;src:url("./fonts/baloo2-latin-800.woff2") format("woff2")}
 </style>
--->
 <style>
 :root{color-scheme:light}
 *,*::before,*::after{box-sizing:border-box}
