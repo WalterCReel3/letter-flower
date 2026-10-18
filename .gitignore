@@ -1,0 +1,16 @@
+node_modules/
+.pw-browsers/
+shots/
+.claude/
+# zero-byte placeholders created by the sandbox
+.bash_profile
+.bashrc
+.gitconfig
+.gitmodules
+.idea
+.mcp.json
+.profile
+.ripgreprc
+.vscode
+.zprofile
+.zshrc

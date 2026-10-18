@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Viewport: no user-scalable=no / maximum-scale. Double-tap zoom and the tap delay are
+     removed with touch-action instead, so pinch-zoom stays available for adults/accessibility.
+     interactive-widget is not set: the game has no text inputs, so the on-screen keyboard never opens. -->
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Letter Flower</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&family=Baloo+2:wght@600;800&display=swap">
+<style>
+:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}
+img{max-width:100%}
+[hidden]:not([hidden=until-found i]){display:none!important}
+
+/* Layout: one column garden; growing plant beside the score, the letter flower is the hero, found words below. */
+:root{
+  --sky:#eef6f7; --card:#ffffff; --ink:#23323a; --muted:#5d6f78;
+  --petal:#ffd6e3; --petal-ink:#7a1f45; --center:#ffc93c; --center-ink:#3d2a00;
+  --leaf:#3f9b5a; --leaf-soft:#d5efdc; --line:#cfe1e4; --warn:#b5452b;
+  /* Fallbacks matter: offline (and on Android without Trebuchet/Comic Sans) these land on system-ui. */
+  --display:"Baloo 2","Trebuchet MS",system-ui,sans-serif;
+  --read:"Andika","Comic Sans MS",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --sky:#142227; --card:#1c2e34; --ink:#eaf3f4; --muted:#a6bac0;
+  --petal:#6b2a46; --petal-ink:#ffe3ee; --center:#f2b827; --center-ink:#2a1c00;
+  --leaf:#6fcf8a; --leaf-soft:#20402c; --line:#2f4950; --warn:#ff9a7f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --sky:#142227; --card:#1c2e34; --ink:#eaf3f4; --muted:#a6bac0;
+  --petal:#6b2a46; --petal-ink:#ffe3ee; --center:#f2b827; --center-ink:#2a1c00;
+  --leaf:#6fcf8a; --leaf-soft:#20402c; --line:#2f4950; --warn:#ff9a7f; color-scheme:dark}
+/* overscroll-behavior:none stops Chrome's pull-to-refresh from reloading the game mid-word. */
+html,body{background:var(--sky);color:var(--ink);overscroll-behavior:none}
+/* No text selection, long-press callout/menu, Touch-to-Search or grey tap flash anywhere in the game. */
+body{font-family:var(--read);padding-inline:16px;padding-block:12px 28px;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+.wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-family:var(--display);font-weight:800;font-size:1.9rem;margin:0;line-height:1;text-wrap:balance}
+.tools{display:flex;gap:8px}
+.chip{font:700 .95rem var(--read);background:var(--card);color:var(--ink);border:2px solid var(--line);border-radius:999px;padding:8px 14px;cursor:pointer;touch-action:none}
+.chip[aria-pressed="false"]{color:var(--muted)}
+.score{display:flex;align-items:center;gap:14px;background:var(--card);border:2px solid var(--line);border-radius:20px;padding:10px 16px}
+.score svg{flex:none}
+.rank{font-family:var(--display);font-weight:800;font-size:1.5rem;line-height:1.1}
+.count{color:var(--muted);font-size:1.05rem}
+.word{min-height:64px;display:flex;align-items:center;justify-content:center;font-size:2.6rem;font-weight:700;letter-spacing:.06em;text-align:center;overflow-wrap:anywhere}
+.word .c{color:var(--leaf)}
+.word .caret{display:inline-block;width:3px;height:1em;background:var(--ink);margin-left:4px;animation:blink 1s steps(1) infinite;vertical-align:-.12em}
+.word.full{animation:full .35s}
+@keyframes full{25%{transform:translateX(-6px);color:var(--warn)}75%{transform:translateX(6px);color:var(--warn)}}
+@keyframes blink{50%{opacity:0}}
+.msg{min-height:2rem;text-align:center;font-family:var(--display);font-weight:800;font-size:1.35rem;color:var(--leaf)}
+.msg.no{color:var(--warn)}
+/* touch-action:none on the flower: no pan, zoom or double-tap gesture can start on the letters. */
+.flower{position:relative;width:min(300px,86vw);aspect-ratio:1;margin:0 auto;max-width:100%;touch-action:none}
+.flower button{position:absolute;width:31%;aspect-ratio:1;border-radius:50%;border:none;font:700 clamp(2rem,10vw,2.8rem) var(--read);cursor:pointer;transform:translate(-50%,-50%);transition:transform .12s;touch-action:none;padding:0 0 .12em}
+.flower button.o{background:var(--petal);color:var(--petal-ink)}
+.flower button.m{background:var(--center);color:var(--center-ink);box-shadow:0 0 0 6px var(--leaf-soft)}
+.flower button:active{transform:translate(-50%,-50%) scale(.9)}
+.flower button:focus-visible,.btn:focus-visible,.chip:focus-visible,.found button:focus-visible{outline:4px solid var(--leaf);outline-offset:3px}
+.actions{display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
+/* Action buttons fire on pointerup inside the button; touch-action:none so a slight slide is not taken as a scroll. */
+.btn{font:800 1.2rem var(--display);border-radius:999px;padding:10px 20px;border:3px solid var(--ink);background:var(--card);color:var(--ink);cursor:pointer;min-width:96px;touch-action:none}
+.actions.main{flex-wrap:nowrap;gap:8px;max-width:340px;margin:0 auto;width:100%}
+.actions.main .btn{flex:1 1 0;min-width:0;padding:8px 6px;font-size:1.05rem;white-space:nowrap}
+.btn.go{background:var(--leaf);border-color:var(--leaf);color:var(--card)}
+.panel{background:var(--card);border:2px solid var(--line);border-radius:20px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.panel h2{margin:0;font-family:var(--display);font-size:1.15rem}
+.found{display:flex;flex-wrap:wrap;gap:8px}
+.found button{font:700 1.3rem var(--read);color:var(--ink);background:var(--leaf-soft);border:none;border-radius:12px;padding:4px 12px;cursor:pointer;touch-action:none}
+.found button.bonus{background:var(--petal);color:var(--petal-ink)}
+.note{font-size:.95rem;color:var(--muted);margin:0}
+.empty{color:var(--muted);font-size:1.05rem}
+.left{display:flex;flex-wrap:wrap;gap:6px 16px;color:var(--muted);font-size:1.05rem}
+.left b{color:var(--ink)}
+.hintline{font-size:1.6rem;letter-spacing:.15em;font-weight:700;min-height:1.6em}
+.foot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted)}
+.grow{transition:all .5s}
+@media (prefers-reduced-motion:reduce){.grow,.flower button{transition:none}.word .caret{animation:none}.word.full{animation:none}}
+</style>
+</head>
+<body>
+
+<div class="wrap" id="game">
+  <header>
+    <h1>Letter Flower</h1>
+    <div class="tools">
+      <button class="chip" id="sound" aria-pressed="true">🔊 Sound on</button>
+    </div>
+  </header>
+
+  <div class="score">
+    <svg id="plant" width="64" height="72" viewBox="0 0 64 72" aria-hidden="true">
+      <rect x="10" y="60" width="44" height="12" rx="4" fill="var(--warn)" opacity=".75"/>
+      <rect id="stem" class="grow" x="30" y="60" width="4" height="0" rx="2" fill="var(--leaf)"/>
+      <ellipse id="leafL" class="grow" cx="24" cy="46" rx="8" ry="4" fill="var(--leaf)" opacity="0"/>
+      <ellipse id="leafR" class="grow" cx="40" cy="38" rx="8" ry="4" fill="var(--leaf)" opacity="0"/>
+      <g id="bloom" class="grow" opacity="0">
+        <circle cx="32" cy="10" r="7" fill="var(--petal)" stroke="var(--petal-ink)" stroke-width="1"/>
+        <circle cx="22" cy="17" r="7" fill="var(--petal)" stroke="var(--petal-ink)" stroke-width="1"/>
+        <circle cx="42" cy="17" r="7" fill="var(--petal)" stroke="var(--petal-ink)" stroke-width="1"/>
+        <circle cx="26" cy="28" r="7" fill="var(--petal)" stroke="var(--petal-ink)" stroke-width="1"/>
+        <circle cx="38" cy="28" r="7" fill="var(--petal)" stroke="var(--petal-ink)" stroke-width="1"/>
+        <circle cx="32" cy="20" r="6" fill="var(--center)"/>
+      </g>
+    </svg>
+    <div>
+      <div class="rank" id="rank">Seed</div>
+      <div class="count" id="count">0 of 0 words</div>
+    </div>
+  </div>
+
+  <div class="word" id="word" aria-live="polite"></div>
+  <div class="msg" id="msg" role="status">Every word needs the yellow letter!</div>
+
+  <div class="flower" id="flower"></div>
+
+  <div class="actions main">
+    <button class="btn" id="del">⌫ Back</button>
+    <button class="btn" id="mix">🔄 Mix</button>
+    <button class="btn go" id="enter">✓ Check</button>
+  </div>
+
+  <section class="panel">
+    <h2>Words I found</h2>
+    <div class="found" id="found"></div>
+    <p class="note" id="bonusnote" hidden>Pink words are bonus words: real words that aren't on the hiding list.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Words still hiding</h2>
+    <div class="left" id="left"></div>
+    <div class="hintline" id="hintline" aria-live="polite"></div>
+    <div class="actions" style="justify-content:flex-start">
+      <button class="btn" id="hear">👂 Hear a word</button>
+      <button class="btn" id="peek">👀 Peek a letter</button>
+    </div>
+  </section>
+
+  <div class="foot">
+    <span id="pnum">Level Daisy</span>
+    <div class="tools">
+      <button class="chip" id="prev">◀ Back</button>
+      <button class="chip" id="next">New flower ▶</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/*
+ * Levels. Each puzzle: id (permanent save key), name (shown as "Level <name>"),
+ * c = center letter (in every word), o = the six petal letters, w = target words, b = bonus words.
+ *
+ * Order is baked, not computed at runtime, so it is the same on every device and reload.
+ * It was produced ONCE from the original letter-flower.html P array (original puzzles 1..30) by a
+ * Fisher-Yates shuffle (for i = n-1 down to 1: j = floor(rand() * (i+1)); swap i, j) driven by
+ * mulberry32 with seed 20261017; names were then assigned in list order (Daisy, Tulip, Rose, ...).
+ * Bonus lists had these non-kid entries removed: bafta brit goa otto orc parr tor playa hath thee
+ * thine ken roc ted mon monte conte carte chino newton. Target (w) words were not touched.
+ */
+const P=[
+  {"id":"daisy","name":"Daisy","c":"i","o":"begprt","w":["bib","big","bit","bite","pie","pig","pit","tie","tiger","tip","trip"],"b":["beige","bigger","bitter","bribe","brig","eerie","gig","grip","grit","ire","petit","petite","pier","pip","pipe","piper","retire","rib","rig","rip","ripe","ripper","rite","terrier","tier","tire","tribe","trigger"]},
+  {"id":"tulip","name":"Tulip","c":"n","o":"deiopw","w":["down","end","need","new","nine","noon","now","one","open","own","pen","pin","pine","pond","win","wind"],"b":["deepen","den","depend","din","dine","don","done","indeed","inn","iodine","ion","nip","nod","node","non","none","nope","onion","opinion","widen","window","wine","won","wooden"]},
+  {"id":"rose","name":"Rose","c":"p","o":"acirtu","w":["cap","cup","part","pat","pit","pup","put","rap","tap","tip","trap","trip"],"b":["apart","apt","carp","pact","pair","pap","papa","par","para","pic","pip","pita","putt","rip"]},
+  {"id":"sunflower","name":"Sunflower","c":"a","o":"bdoprt","w":["add","art","bad","bar","bat","boat","dad","oat","pad","part","pat","rap","rat","road","tap","tar","toad","trap"],"b":["abbot","aboard","abort","abroad","adapt","ado","adopt","apart","apt","arbor","atop","baba","barb","bard","boa","boar","board","brad","brat","broad","dab","dart","data","dorado","drab","pap","papa","par","para","parrot","potato","radar","rapport","raptor","roar","tab","taboo","tarot","tart","tat","tattoo"]},
+  {"id":"lily","name":"Lily","c":"l","o":"abempy","w":["all","apple","ball","bell","lamb","lamp","lap","meal","play","yell"],"b":["able","ale","alley","ally","alma","ample","appeal","apply","bale","balm","belle","belly","blame","eel","elm","emblem","eyeball","lab","label","lama","lame","lay","leap","lee","male","mall","mammal","maple","melee","pal","pale","palm","palpable","papal","payable","pebble","peel","plea","ply","yelp"]},
+  {"id":"poppy","name":"Poppy","c":"d","o":"aegorw","w":["add","dad","dear","deer","dog","draw","good","odd","red","road","weed","wood","word"],"b":["added","ado","adore","aged","award","dagger","dare","dead","dee","deed","degrade","degraded","degree","dew","dodge","dodger","doe","door","dorado","drag","drawer","dread","dredge","drew","edge","edged","erode","eroded","grade","graded","grader","greed","ode","odor","order","ordered","radar","ragged","read","reader","redwood","reed","regard","reread","reward","rod","rode","rodeo","wade","ward","wed","wedge","wooded"]},
+  {"id":"violet","name":"Violet","c":"p","o":"ahilot","w":["hop","lap","lip","loop","pat","pit","pool","pop","pot","tap","tip","top"],"b":["alpha","apt","atop","hap","hilltop","hip","hippo","hoop","lollipop","opal","pal","pap","papa","papal","path","patio","photo","pill","pilot","pip","pita","plot","poll","polo","pooh","potato"]},
+  {"id":"pansy","name":"Pansy","c":"t","o":"abegnu","w":["ant","ate","bat","bet","but","eat","gate","get","neat","net","nut","tag","tan","ten","tent","tub","tug","tuna"],"b":["agent","ante","antenna","aunt","beat","beaten","beet","bent","beta","butt","butte","eaten","gut","nugget","tab","tang","tangent","tat","tea","tee","teen","teenage","tenant","tenet","tube","tune","unbeaten"]},
+  {"id":"iris","name":"Iris","c":"e","o":"aiklmt","w":["ate","eat","kite","lake","let","lie","like","lime","little","make","meal","meat","met","mile","take","team","tie","time"],"b":["ale","alike","eel","elite","elk","elm","emit","imitate","item","kale","keel","kettle","lame","late","leak","lee","lite","male","mallet","mate","matte","meek","meet","melee","melt","meta","metal","mime","mite","tale","tame","tea","teal","tee","tell","tile","title"]},
+  {"id":"daffodil","name":"Daffodil","c":"h","o":"eimrtw","w":["her","here","him","hit","the","them","there","three","where","white","with"],"b":["either","ether","heir","hem","hermit","hire","hitter","teeth","their","theme","threw","whether","whew","whim","wither"]},
+  {"id":"marigold","name":"Marigold","c":"o","o":"elmnpt","w":["loop","lot","mom","moon","mop","noon","not","note","one","open","pool","pop","pot","toe","tone","too","tool","top"],"b":["lemon","lone","loom","loot","lotto","melon","mole","molten","moment","mono","moo","moot","motto","noel","non","none","nope","omen","onto","opponent","people","plot","poem","poet","pole","poll","pollen","polo","pope","potent","tempo","toll","tom","ton","toon","toot","tot","tote","totem"]},
+  {"id":"lilac","name":"Lilac","c":"i","o":"efknpt","w":["fin","fit","ink","kit","kite","nine","pie","pin","pine","pit","tie","tin","tip"],"b":["fife","fifteen","fine","finite","inept","infinite","inn","intent","kin","kink","kitten","knife","knit","nineteen","nip","nit","petit","petite","pike","pink","pint","pip","pipe","tiff","tint"]},
+  {"id":"orchid","name":"Orchid","c":"t","o":"abefmo","w":["ate","bat","bet","boat","boot","eat","fat","feet","foot","mat","meat","met","moat","oat","team","toe","tomato","too"],"b":["abbot","aft","atom","beat","beet","beta","bot","bottom","fate","feat","mate","matte","meet","meta","moot","motto","oft","tab","taboo","tame","tat","tattoo","tea","tee","tom","tomb","toot","tot","tote","totem"]},
+  {"id":"peony","name":"Peony","c":"e","o":"bdilnt","w":["bed","bee","bell","belt","bend","bet","bite","end","let","lie","line","little","need","net","nine","ten","tent","tie"],"b":["been","beet","beetle","belle","ben","bent","bile","billed","bitten","bled","bleed","blend","blended","blinded","debit","debt","dee","deed","delete","dell","den","dent","die","diet","dine","ebb","edible","edit","eel","elite","idle","indebted","indeed","inlet","intend","intended","intent","led","lee","lend","lenient","lent","libel","lied","lien","linden","lined","linen","lite","needle","netted","nineteen","tee","teen","tell","tend","tenet","tide","tile","title","titled"]},
+  {"id":"zinnia","name":"Zinnia","c":"r","o":"acfnot","w":["art","car","cart","corn","far","for","ran","rat","roof","root","rot","tar"],"b":["acorn","actor","arc","attract","cantor","carat","carrot","carton","cartoon","confront","contra","contract","contractor","cor","corona","craft","croft","factor","fort","franc","fro","front","narrator","nor","raccoon","raft","rant","roar","rotor","tarot","tart","torn","tort","tract","tractor","trot"]},
+  {"id":"lotus","name":"Lotus","c":"d","o":"ahimnp","w":["add","and","dad","dam","damp","did","dim","dip","had","hand","hid","mad","pad"],"b":["aid","amid","din","hind","madam","maid","mid","mind","panda"]},
+  {"id":"clover","name":"Clover","c":"i","o":"deglmp","w":["did","dig","dim","dip","lid","lie","lime","lip","mile","pie","pig"],"b":["die","dill","dime","dipped","gig","giggle","gill","glide","idle","ill","imp","impede","lied","limp","mid","middle","mild","mill","mime","pied","pile","piled","pill","pip","pipe"]},
+  {"id":"buttercup","name":"Buttercup","c":"o","o":"adglmt","w":["dog","doll","dot","goat","gold","good","got","log","lot","moat","mom","oat","odd","old","toad","tomato","too","tool"],"b":["ado","ago","alto","atom","dogma","doom","gloom","goal","load","loom","loot","lotto","modal","mold","moo","mood","moot","motto","tattoo","told","toll","tom","toot","tot","total"]},
+  {"id":"dandelion","name":"Dandelion","c":"r","o":"adefit","w":["after","are","art","dear","deer","ear","far","fire","rat","red","ride","tar","tear","tree"],"b":["adrift","affair","afraid","air","area","aria","arid","attire","dare","dart","defer","deter","dieter","differ","dire","dirt","draft","dread","dried","drier","drift","eater","eerie","era","ere","err","fair","fare","fear","feeder","ferret","fir","fitter","free","fret","friar","fried","ire","irritate","radar","raft","raid","raider","rare","rate","read","reader","rear","reed","reef","refer","referee","reiterate","reread","retire","retired","retreat","rid","rider","rife","rift","rite","tariff","tart","terrier","tier","tire","tired","trade","trader","trait","tread","treat","triad","tried"]},
+  {"id":"bluebell","name":"Bluebell","c":"n","o":"aekotw","w":["ant","know","neat","net","new","noon","not","note","now","one","own","tan","ten","tent","tone","town","want","went"],"b":["anew","anon","ante","antenna","awaken","eaten","keen","knee","knew","knot","known","nana","newt","non","none","nook","onto","taken","tank","teen","tenant","tenet","token","ton","toon","wan","weaken","won","wont"]},
+  {"id":"petunia","name":"Petunia","c":"d","o":"cgilou","w":["cloud","could","did","dig","dog","doll","dug","gold","good","lid","odd","old"],"b":["cod","cold","dill","dull","duo","guild","idol","loud","lucid"]},
+  {"id":"jasmine","name":"Jasmine","c":"a","o":"bdemnr","w":["add","and","are","arm","bad","band","bar","beam","bean","bear","dad","dam","dear","ear","mad","mean","near","ran"],"b":["added","amber","amen","amend","area","arena","armada","armed","baba","babe","bam","ban","banana","bane","banner","barb","barbed","barber","bard","bare","barn","barren","bead","beaded","beamed","beard","bearded","bearer","brad","bran","brand","bread","dab","dame","dare","darn","dead","dean","demand","drab","drama","dread","dream","dreamer","earn","era","errand","madam","madden","made","man","mane","manner","mannered","mar","mare","mead","membrane","nab","name","nana","radar","ram","rand","rare","read","reader","rear","remade","rename","reread"]},
+  {"id":"aster","name":"Aster","c":"w","o":"behnor","w":["bow","brown","how","new","now","own","web","were","when","where","who"],"b":["borrow","borrower","bower","brew","brewer","brow","nowhere","owe","owner","renew","renown","row","rower","wee","whew","woe","won","woo","wore","worn","wren"]},
+  {"id":"magnolia","name":"Magnolia","c":"l","o":"efiotw","w":["elf","let","lie","little","lot","oil","tool","well","will","wolf","wool"],"b":["eel","elite","feel","fell","fellow","felt","file","fill","flee","fleet","flew","flow","foil","folio","follow","fool","fowl","ill","lee","left","life","lift","lit","lite","loft","loot","lotto","low","owl","tell","tile","till","tilt","title","toil","toilet","toll","towel","willow","wilt"]},
+  {"id":"carnation","name":"Carnation","c":"o","o":"dfgrtu","w":["dog","dot","fog","food","foot","for","four","frog","good","got","odd","off","our","out","roof","root","rot","too"],"b":["door","dugout","duo","ford","forgot","fort","fro","gout","odor","oft","outdoor","rod","rotor","rout","toot","tort","tot","tour","tout","trot","trout","tutor"]},
+  {"id":"hibiscus","name":"Hibiscus","c":"e","o":"anprty","w":["are","ate","ear","eat","near","neat","net","pea","pen","pet","pretty","tape","tear","ten","tent","tree","year","yet"],"b":["ante","antenna","ape","apnea","apparent","appear","area","arena","artery","aye","earn","eaten","eater","enter","entry","era","ere","err","eye","pane","paper","parent","partner","patent","pattern","payer","pear","peat","peep","peer","penny","pepper","per","petty","prayer","prepare","prey","rapper","rare","rate","reap","reaper","reappear","rear","rent","rep","repay","repeat","repent","retreat","rye","tanner","taper","tea","tee","teen","teeny","tenant","tenet","treat","treaty","trey","type","yen"]},
+  {"id":"snapdragon","name":"Snapdragon","c":"p","o":"aclmor","w":["camp","cap","clap","cop","lamp","lap","loop","map","mop","pool","pop","ramp","rap"],"b":["carp","clamp","coop","corporal","cramp","crop","opal","pal","palm","pap","papa","papal","par","para","parlor","polar","poll","polo","poor","poplar","pro","prop"]},
+  {"id":"cosmos","name":"Cosmos","c":"t","o":"abcehr","w":["act","art","ate","bat","bath","bet","cart","cat","eat","hat","rat","tar","tear","that","the","there","three","tree"],"b":["acetate","attach","attract","barter","batch","bathe","batter","beat","beater","beet","berth","beta","better","brat","breath","breathe","breather","cabaret","carat","carter","catch","catcher","cater","character","chart","charter","chat","chatter","cheat","cheater","cheetah","crate","crater","create","earth","eater","ether","hart","hatch","hatchet","hate","hater","heart","heartache","heartbeat","hearth","heat","heater","heath","heather","hectare","ratchet","rate","rather","react","rebate","recreate","retract","retreat","tab","tact","tart","tat","tea","teach","teacher","tee","teeth","terrace","thatcher","theater","theta","threat","trace","tracer","tract","treat"]},
+  {"id":"dahlia","name":"Dahlia","c":"n","o":"cehiot","w":["chin","coin","cone","hen","hint","into","net","nine","noon","not","note","once","one","ten","tent","then","tin","tone"],"b":["cent","cocoon","con","connect","connection","content","contention","continent","cotton","entice","ethnic","hence","hone","icon","inch","incite","inn","innocence","innocent","intent","intention","ion","ionic","nice","niche","niece","nineteen","nineteenth","ninth","nit","non","none","notch","notice","notion","onion","onto","tectonic","teen","tenet","tenth","thence","thin","tint","ton","tonic","toon"]},
+  {"id":"lavender","name":"Lavender","c":"a","o":"ceflpt","w":["act","all","apple","ate","cap","cape","cat","clap","eat","fact","fat","flat","lap","leaf","pat","pea","tap","tape"],"b":["accept","ace","acetate","affect","aft","ale","ape","appeal","appellate","apt","cal","calf","call","cattle","face","facet","fall","fatal","fate","feat","fetal","flap","flea","lace","late","leaflet","leap","pace","pact","pal","palace","palate","pale","palette","pallet","pap","papa","papal","peace","peat","petal","place","plate","plea","tact","tale","tall","tat","tea","teal"]}
+];
+
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+};
+const MAX_LETTERS = 12;
+const RANKS = [[0, 'Seed'], [.01, 'Sprout'], [.25, 'Leafy'], [.5, 'Bud'], [.75, 'Bloom'], [1, 'Super Bloom!']];
+const CHEERS = ['Great job!', 'You got it!', 'Super!', 'Yes!', 'Nice reading!', 'Wow!'];
+
+// Saves are keyed by level id: lf2-found-<id>, lf2-bonus-<id>, lf2-level (id), lf2-sound.
+// Unknown or missing saved id falls back to the first level (Daisy).
+const indexOf = id => P.findIndex(p => p.id === id);
+let idx = Math.max(0, indexOf(store.get('lf2-level', P[0].id)));
+let found, bonus, outer, typed = '', sound = store.get('lf2-sound', true) !== false, hint = null, msgT, fullT;
+
+/* ---------- Speech ---------- */
+// say() must never throw or hold up input: every call into speechSynthesis is guarded.
+const TTS = ('speechSynthesis' in window) && ('SpeechSynthesisUtterance' in window);
+let voice = null, unlocked = false;
+function pickVoice() {
+  try {
+    const v = speechSynthesis.getVoices();
+    voice = v.find(x => /^en[-_]US/i.test(x.lang) && x.localService) || v.find(x => /^en/i.test(x.lang)) || null;
+  } catch (e) {}
+}
+if (TTS) { pickVoice(); try { speechSynthesis.addEventListener('voiceschanged', pickVoice); } catch (e) {} }
+function speakNow(t) {
+  try {
+    const u = new SpeechSynthesisUtterance(t);
+    u.rate = .8; u.lang = 'en-US'; if (voice) u.voice = voice;
+    speechSynthesis.speak(u);
+  } catch (e) {}
+}
+function say(t) {
+  if (!sound || !TTS) return;
+  try {
+    if (speechSynthesis.speaking || speechSynthesis.pending) { speechSynthesis.cancel(); setTimeout(() => speakNow(t), 60); }
+    else speakNow(t);
+    speechSynthesis.resume();
+  } catch (e) {}
+}
+// Phones only allow speech that starts from a tap, so wake the speech engine on the first touch.
+function unlock() {
+  if (unlocked || !TTS) return; unlocked = true;
+  try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (e) {}
+}
+document.addEventListener('pointerdown', unlock, { once: true, capture: true });
+document.addEventListener('keydown', unlock, { once: true, capture: true });
+
+/* ---------- Input ---------- */
+// Letters fire on pointerdown: one contact = one letter, immediately, per pointer, so a resting palm or a
+// second finger never blocks or doubles a tap. The click that a pointer contact produces (however long the
+// press was) is swallowed; a click with no pointer contact before it (keyboard Enter/Space, screen reader
+// activation) still types the letter.
+function swallowClickAfterPointer(el, fn) {
+  let pending = false;   // a pointer contact happened whose click has not arrived yet
+  el.addEventListener('pointerdown', e => { if (!(e.pointerType === 'mouse' && e.button !== 0)) pending = true; });
+  el.addEventListener('pointercancel', () => { pending = false; });
+  el.addEventListener('keydown', () => { pending = false; });
+  el.addEventListener('click', () => { if (pending) { pending = false; return; } if (!el.disabled) fn(); });
+}
+function onPress(el, fn) {
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault();
+    fn();
+  });
+  swallowClickAfterPointer(el, fn);
+}
+// Action buttons fire on pointerup inside the button (plus a little slop), not pointerdown: a child resting
+// a finger on Check while reaching for letters must not submit, and a finger that slides off can take it
+// back. touch-action:none on these buttons means a slight slide is not turned into a scroll (which would
+// cancel the pointer and, with plain 'click', silently drop the tap).
+const TAP_SLOP = 16;
+function onTap(el, fn) {
+  let downId = null;
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    downId = e.pointerId;
+  });
+  el.addEventListener('pointerup', e => {
+    if (e.pointerId !== downId) return;
+    downId = null;
+    const r = el.getBoundingClientRect();
+    if (e.clientX >= r.left - TAP_SLOP && e.clientX <= r.right + TAP_SLOP &&
+        e.clientY >= r.top - TAP_SLOP && e.clientY <= r.bottom + TAP_SLOP && !el.disabled) fn();
+  });
+  el.addEventListener('pointercancel', e => { if (e.pointerId === downId) downId = null; });
+  swallowClickAfterPointer(el, fn);
+}
+// No long-press menu on the game.
+$('game').addEventListener('contextmenu', e => e.preventDefault());
+
+function shuffle(a) {
+  a = a.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+/* ---------- Game ---------- */
+const listeners = [];
+function load() {
+  const p = P[idx];
+  found = store.get('lf2-found-' + p.id, []); bonus = store.get('lf2-bonus-' + p.id, []);
+  outer = p.o.split(''); typed = ''; hint = null;
+  $('pnum').textContent = 'Level ' + p.name;
+  store.set('lf2-level', p.id);
+  drawFlower(); render(); flash('Every word needs the yellow letter!');
+}
+function drawFlower() {
+  const f = $('flower'); f.innerHTML = ''; const p = P[idx];
+  const add = (ch, x, y, cls) => {
+    const b = document.createElement('button');
+    b.className = cls; b.textContent = ch; b.style.left = x + '%'; b.style.top = y + '%';
+    b.setAttribute('aria-label', 'letter ' + ch);
+    onPress(b, () => type(ch));
+    f.appendChild(b);
+  };
+  add(p.c, 50, 50, 'm');
+  outer.forEach((ch, i) => { const a = (i * 60 - 90) * Math.PI / 180; add(ch, 50 + 33 * Math.cos(a), 50 + 33 * Math.sin(a), 'o'); });
+}
+function render() {
+  const p = P[idx];
+  $('word').innerHTML = typed.split('').map(ch => '<span' + (ch === p.c ? ' class="c"' : '') + '>' + ch + '</span>').join('') + '<span class="caret"></span>';
+  const n = found.length, t = p.w.length, fr = n / t;
+  $('count').textContent = n + ' of ' + t + ' words';
+  $('rank').textContent = RANKS.filter(r => fr >= r[0]).pop()[1];
+  $('stem').setAttribute('height', Math.round(fr * 52)); $('stem').setAttribute('y', 60 - Math.round(fr * 52));
+  $('leafL').setAttribute('opacity', fr >= .25 ? 1 : 0); $('leafR').setAttribute('opacity', fr >= .5 ? 1 : 0);
+  $('bloom').setAttribute('opacity', fr >= 1 ? 1 : fr >= .75 ? .45 : 0);
+  const fl = $('found');
+  fl.innerHTML = (found.length || bonus.length) ? '' : '<span class="empty">Tap letters to make a word.</span>';
+  [...found.map(w => [w, 0]), ...bonus.map(w => [w, 1])].sort((a, b) => a[0] < b[0] ? -1 : 1).forEach(([w, isBonus]) => {
+    const s = document.createElement('button');
+    s.textContent = (isBonus ? '⭐ ' : '') + w;
+    if (isBonus) s.className = 'bonus';
+    s.title = 'Hear it'; s.setAttribute('aria-label', 'Hear ' + w);
+    onTap(s, () => say(w));
+    fl.appendChild(s);
+  });
+  $('bonusnote').hidden = !bonus.length;
+  const left = {};
+  p.w.filter(w => !found.includes(w)).forEach(w => left[w.length] = (left[w.length] || 0) + 1);
+  const keys = Object.keys(left);
+  $('left').innerHTML = keys.length ? keys.map(k => '<span><b>' + left[k] + '</b> with ' + k + ' letters</span>').join('') : '<span><b>You found them all!</b></span>';
+  if (hint && found.includes(hint.w)) hint = null;
+  $('hintline').textContent = hint ? hint.w.split('').map((ch, i) => i < hint.k ? ch : '_').join(' ') : '';
+  listeners.forEach(fn => { try { fn(Game.state()); } catch (e) {} });
+}
+function flash(t, bad) {
+  $('msg').textContent = t; $('msg').className = 'msg' + (bad ? ' no' : '');
+  clearTimeout(msgT); msgT = setTimeout(() => { $('msg').textContent = ''; }, 2600);
+}
+function type(ch) {
+  if (typed.length >= MAX_LETTERS) {
+    const w = $('word'); w.classList.remove('full'); void w.offsetWidth; w.classList.add('full');
+    clearTimeout(fullT); fullT = setTimeout(() => w.classList.remove('full'), 400);
+    flash('That is the most letters! Tap Check or Back.', 1);
+    return;
+  }
+  typed += ch; render();
+}
+function back() { typed = typed.slice(0, -1); render(); }
+function check() {
+  const p = P[idx], w = typed; if (!w) return; typed = '';
+  let speak = null;
+  if (w.length < 3) flash('Words need 3 letters or more.', 1);
+  else if (!w.includes(p.c)) flash('Use the yellow letter!', 1);
+  else if (found.includes(w) || bonus.includes(w)) flash('You already found ' + w + '!', 1);
+  else if (p.b.includes(w)) { bonus.push(w); store.set('lf2-bonus-' + p.id, bonus); flash('Bonus word! ' + w); speak = w; }
+  else if (p.w.includes(w)) {
+    found.push(w); store.set('lf2-found-' + p.id, found);
+    if (found.length === p.w.length) { flash('Super Bloom! You found every word!'); speak = w + '! You found every word!'; }
+    else { flash(CHEERS[Math.random() * CHEERS.length | 0] + ' ' + w); speak = w; }
+  }
+  else flash('Hmm, try a different word.', 1);
+  render();          // update the screen first, then speak
+  if (speak) say(speak);
+}
+function pickHint() {
+  const left = P[idx].w.filter(w => !found.includes(w)); if (!left.length) return null;
+  if (hint && left.includes(hint.w)) return hint;
+  return { w: left[Math.random() * left.length | 0], k: 1 };
+}
+function hear() { hint = pickHint(); if (!hint) return; render(); if (sound) say(hint.w); else flash('Turn sound on to hear it.', 1); }
+function peek() { const had = hint; hint = pickHint(); if (!hint) return; if (had === hint && hint.k < hint.w.length - 1) hint.k++; render(); }
+function mix() { outer = shuffle(outer); drawFlower(); }
+function goIndex(i) { idx = (i + P.length) % P.length; load(); }
+
+onTap($('hear'), hear);
+onTap($('peek'), peek);
+onTap($('del'), back);
+onTap($('enter'), check);
+onTap($('mix'), mix);
+onTap($('next'), () => goIndex(idx + 1));
+onTap($('prev'), () => goIndex(idx - 1));
+
+const sb = $('sound');
+function setSound() {
+  if (!TTS) { sb.textContent = '🔇 No voice here'; sb.disabled = true; sb.title = 'This browser or app has no speech. Try opening the game in Safari or Chrome.'; $('hear').hidden = true; return; }
+  sb.textContent = sound ? '🔊 Sound on' : '🔇 Sound off'; sb.setAttribute('aria-pressed', sound);
+}
+onTap(sb, () => { sound = !sound; store.set('lf2-sound', sound); setSound(); if (sound) say('Sound on'); });
+setSound();
+
+// Physical keyboard. Enter/Space on a button the player reached with Tab activate that button natively;
+// otherwise Enter = Check, Space = Mix, Backspace = Back, letters type. (Not :focus-visible: Chrome turns
+// that on for a mouse-focused button as soon as any key is typed, which would make Enter add a letter.)
+let tabFocused = null, lastInputKey = false;
+document.addEventListener('pointerdown', () => { lastInputKey = false; tabFocused = null; }, true);
+document.addEventListener('keydown', e => { if (e.key === 'Tab') lastInputKey = true; }, true);
+document.addEventListener('focusin', e => { tabFocused = lastInputKey ? e.target : null; });
+document.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase(), p = P[idx], t = e.target;
+  if ((k === 'enter' || k === ' ') && t && t.tagName === 'BUTTON' && t === tabFocused) return;
+  if (k === 'enter') { e.preventDefault(); check(); }
+  else if (k === 'backspace') { e.preventDefault(); back(); }
+  else if (k === ' ') { e.preventDefault(); mix(); }
+  else if (k.length === 1 && (k === p.c || p.o.includes(k))) { if (!e.repeat) type(k); }
+});
+
+/* ---------- API for layout variants ---------- */
+window.Game = {
+  levels: P.map(p => ({ id: p.id, name: p.name })),
+  goTo(id) { const i = indexOf(id); if (i < 0) return false; goIndex(i); return true; },
+  state() {
+    const p = P[idx];
+    return { id: p.id, name: p.name, index: idx, typed, found: found.slice(), bonus: bonus.slice(), total: p.w.length, done: found.length === p.w.length };
+  },
+  // Progress for any level without switching to it (for a level picker).
+  progress(id) { const p = P[indexOf(id)]; if (!p) return null; const f = store.get('lf2-found-' + p.id, []); return { found: f.length, total: p.w.length }; },
+  onChange(fn) { listeners.push(fn); }
+};
+
+load();
+</script>
+</body>
+</html>
