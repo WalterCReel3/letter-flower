@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Letter Flower app icon, drawn from F's light palette: leaf #3f9b5a, petal #ffd6e3, centre #ffc93c, centre ring #d5efdc, centre ink #3d2a00.
+       Geometry follows F's flower: petals 31% of the flower wide on a 33% ring. Maskable icon: full-bleed tile; the whole flower lies within the 40% safe-zone circle (outer petal edge 198.8 of 204.8).
+       Rendered to PNG by icons/render.cjs. -->
+  <rect width="512" height="512" fill="#3f9b5a"/>
+  <g transform="translate(256 256)">
+    <g fill="#ffd6e3">
+    <circle cy="-135.30" r="63.55"/>
+    <circle cy="-135.30" r="63.55" transform="rotate(60)"/>
+    <circle cy="-135.30" r="63.55" transform="rotate(120)"/>
+    <circle cy="-135.30" r="63.55" transform="rotate(180)"/>
+    <circle cy="-135.30" r="63.55" transform="rotate(240)"/>
+    <circle cy="-135.30" r="63.55" transform="rotate(300)"/>
+    </g>
+    <circle r="71.75" fill="#d5efdc"/>
+    <circle r="63.55" fill="#ffc93c"/>
+    <text y="-5.5" text-anchor="middle" dominant-baseline="central" font-family="Andika,Comic Sans MS,sans-serif" font-weight="700" font-size="82" fill="#3d2a00">a</text>
+  </g>
+</svg>
