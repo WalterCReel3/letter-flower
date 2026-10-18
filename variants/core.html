@@ -73,8 +73,16 @@ h1{font-family:var(--display);font-weight:800;font-size:1.9rem;margin:0;line-hei
 .panel{background:var(--card);border:2px solid var(--line);border-radius:20px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
 .panel h2{margin:0;font-family:var(--display);font-size:1.15rem}
 .found{display:flex;flex-wrap:wrap;gap:8px}
-.found button{font:700 1.3rem var(--read);color:var(--ink);background:var(--leaf-soft);border:none;border-radius:12px;padding:4px 12px;cursor:pointer;touch-action:none}
+.found button{font:700 1.3rem var(--read);color:var(--ink);background:var(--leaf-soft);border:none;border-radius:12px;padding:4px 12px;cursor:pointer}
 .found button.bonus{background:var(--petal);color:var(--petal-ink)}
+/* Scrollable inner regions (menu panel, level list, a long found-word list).
+   touch-action:none is set on the game buttons themselves (flower, .btn, .chip), never on a container, so a
+   region opts back in to vertical scrolling just by carrying class="scroll". Buttons inside it allow pan-y:
+   a swipe that starts on one scrolls the list, Chrome sends pointercancel, and onTap treats that as no tap.
+   Rule for variants: never put touch-action:none on an ancestor of a .scroll region (the browser intersects
+   touch-action down the tree, so it would block the scroll), and wire its buttons with onTap. */
+.scroll{overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y}
+.scroll button,.found button{touch-action:pan-y}
 .note{font-size:.95rem;color:var(--muted);margin:0}
 .empty{color:var(--muted);font-size:1.05rem}
 .left{display:flex;flex-wrap:wrap;gap:6px 16px;color:var(--muted);font-size:1.05rem}
@@ -146,7 +154,7 @@ h1{font-family:var(--display);font-weight:800;font-size:1.9rem;margin:0;line-hei
   <div class="foot">
     <span id="pnum">Level Daisy</span>
     <div class="tools">
-      <button class="chip" id="prev">◀ Back</button>
+      <button class="chip" id="prev">◀ Last flower</button>
       <button class="chip" id="next">New flower ▶</button>
     </div>
   </div>
@@ -208,9 +216,19 @@ const CHEERS = ['Great job!', 'You got it!', 'Super!', 'Yes!', 'Nice reading!', 
 
 // Saves are keyed by level id: lf2-found-<id>, lf2-bonus-<id>, lf2-level (id), lf2-sound.
 // Unknown or missing saved id falls back to the first level (Daisy).
+// Found/bonus saves are shared by every variant on the origin, so anything read back is cleaned: not an array,
+// non-strings, duplicates and words not on this level's list are dropped (a bad save must never kill the game).
 const indexOf = id => P.findIndex(p => p.id === id);
+const clean = (v, allowed) => Array.isArray(v) ? [...new Set(v.filter(w => typeof w === 'string' && allowed.includes(w)))] : [];
 let idx = Math.max(0, indexOf(store.get('lf2-level', P[0].id)));
 let found, bonus, outer, typed = '', sound = store.get('lf2-sound', true) !== false, hint = null, msgT, fullT;
+
+// Level order. Off (default): the baked order above, Daisy first. On (lf2-shuffle = true): a fresh random
+// order on every startup. `order` holds indexes into P; next/prev step through it. Saves are keyed by id,
+// so the order never touches progress.
+let shuffleOn = store.get('lf2-shuffle', false) === true;
+const makeOrder = () => shuffleOn ? shuffle(P.map((_, i) => i)) : P.map((_, i) => i);
+let order = makeOrder();
 
 /* ---------- Speech ---------- */
 // say() must never throw or hold up input: every call into speechSynthesis is guarded.
@@ -238,12 +256,14 @@ function say(t) {
     speechSynthesis.resume();
   } catch (e) {}
 }
-// Phones only allow speech that starts from a tap, so wake the speech engine on the first touch.
+// Phones only allow speech that starts from a user activation, so wake the speech engine on the first one.
+// It is pointerup, not pointerdown: in Chrome a touch pointerdown does not count as user activation (a touch
+// activates at pointerup/touchend), so a speak() from pointerdown would be refused.
 function unlock() {
   if (unlocked || !TTS) return; unlocked = true;
   try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (e) {}
 }
-document.addEventListener('pointerdown', unlock, { once: true, capture: true });
+document.addEventListener('pointerup', unlock, { once: true, capture: true });
 document.addEventListener('keydown', unlock, { once: true, capture: true });
 
 /* ---------- Input ---------- */
@@ -251,12 +271,18 @@ document.addEventListener('keydown', unlock, { once: true, capture: true });
 // second finger never blocks or doubles a tap. The click that a pointer contact produces (however long the
 // press was) is swallowed; a click with no pointer contact before it (keyboard Enter/Space, screen reader
 // activation) still types the letter.
+// The swallow window is measured from the pointerup, not the pointerdown: the browser dispatches a pointer's
+// click right after its pointerup however long the press lasted. A contact that never produces a click
+// (long-press, drag-off) therefore leaves nothing behind that could eat a later screen-reader click.
+const CLICK_AFTER_UP_MS = 800;
 function swallowClickAfterPointer(el, fn) {
-  let pending = false;   // a pointer contact happened whose click has not arrived yet
-  el.addEventListener('pointerdown', e => { if (!(e.pointerType === 'mouse' && e.button !== 0)) pending = true; });
-  el.addEventListener('pointercancel', () => { pending = false; });
-  el.addEventListener('keydown', () => { pending = false; });
-  el.addEventListener('click', () => { if (pending) { pending = false; return; } if (!el.disabled) fn(); });
+  let upAt = -Infinity;  // when the last primary pointer contact on el ended
+  el.addEventListener('pointerup', e => { if (!(e.pointerType === 'mouse' && e.button !== 0)) upAt = performance.now(); });
+  el.addEventListener('keydown', () => { upAt = -Infinity; });
+  el.addEventListener('click', () => {
+    if (performance.now() - upAt < CLICK_AFTER_UP_MS) { upAt = -Infinity; return; }
+    if (!el.disabled) fn();
+  });
 }
 function onPress(el, fn) {
   el.addEventListener('pointerdown', e => {
@@ -270,21 +296,30 @@ function onPress(el, fn) {
 // a finger on Check while reaching for letters must not submit, and a finger that slides off can take it
 // back. touch-action:none on these buttons means a slight slide is not turned into a scroll (which would
 // cancel the pointer and, with plain 'click', silently drop the tap).
-const TAP_SLOP = 16;
+// A contact held longer than TAP_MAX_MS is not a tap (a palm resting on Check must not submit when it lifts);
+// 1.5 s rather than shorter so a slow, deliberate press by a 6-year-old still counts.
+// The pointer is captured on pointerdown, so its pointerup always comes back here and downId cannot go stale
+// (a mouse released elsewhere used to leave it set). pointercancel (e.g. the finger started a scroll in a
+// .scroll region) means no tap.
+const TAP_SLOP = 16, TAP_MAX_MS = 1500;
 function onTap(el, fn) {
-  let downId = null;
+  let downId = null, downAt = 0;
   el.addEventListener('pointerdown', e => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    downId = e.pointerId;
+    downId = e.pointerId; downAt = performance.now();
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
   });
   el.addEventListener('pointerup', e => {
     if (e.pointerId !== downId) return;
     downId = null;
+    if (performance.now() - downAt > TAP_MAX_MS) return;
     const r = el.getBoundingClientRect();
     if (e.clientX >= r.left - TAP_SLOP && e.clientX <= r.right + TAP_SLOP &&
         e.clientY >= r.top - TAP_SLOP && e.clientY <= r.bottom + TAP_SLOP && !el.disabled) fn();
   });
-  el.addEventListener('pointercancel', e => { if (e.pointerId === downId) downId = null; });
+  const drop = e => { if (e.pointerId === downId) downId = null; };
+  el.addEventListener('pointercancel', drop);
+  el.addEventListener('lostpointercapture', drop);
   swallowClickAfterPointer(el, fn);
 }
 // No long-press menu on the game.
@@ -298,10 +333,30 @@ function shuffle(a) {
 
 /* ---------- Game ---------- */
 const listeners = [];
+let foundKey = null, notifying = false;
+function readSaved() {
+  const p = P[idx];
+  found = clean(store.get('lf2-found-' + p.id, []), p.w);
+  bonus = clean(store.get('lf2-bonus-' + p.id, []), p.b);
+}
+// Two tabs (or two variants) can be open on the same level. Saving re-reads the stored list and writes the
+// union with this tab's list, so a stale tab adds to what another tab found instead of overwriting it.
+function saveWord(kind, list, allowed, w) {
+  const key = 'lf2-' + kind + '-' + P[idx].id;
+  const merged = clean([...clean(store.get(key, []), allowed), ...list, w], allowed);
+  store.set(key, merged);
+  return merged;
+}
+// Another tab changed this level's words (or index.html reset them): take the stored lists as they are now.
+// Replacing rather than merging is what lets a reset stick in a tab that is still open.
+window.addEventListener('storage', e => {
+  const id = P[idx].id;
+  if (e.key === null || e.key === 'lf2-found-' + id || e.key === 'lf2-bonus-' + id) { readSaved(); render(); }
+});
 function load() {
   const p = P[idx];
-  found = store.get('lf2-found-' + p.id, []); bonus = store.get('lf2-bonus-' + p.id, []);
-  outer = p.o.split(''); typed = ''; hint = null;
+  readSaved();
+  outer = p.o.split(''); typed = ''; hint = null; foundKey = null;
   $('pnum').textContent = 'Level ' + p.name;
   store.set('lf2-level', p.id);
   drawFlower(); render(); flash('Every word needs the yellow letter!');
@@ -327,16 +382,22 @@ function render() {
   $('stem').setAttribute('height', Math.round(fr * 52)); $('stem').setAttribute('y', 60 - Math.round(fr * 52));
   $('leafL').setAttribute('opacity', fr >= .25 ? 1 : 0); $('leafR').setAttribute('opacity', fr >= .5 ? 1 : 0);
   $('bloom').setAttribute('opacity', fr >= 1 ? 1 : fr >= .75 ? .45 : 0);
-  const fl = $('found');
-  fl.innerHTML = (found.length || bonus.length) ? '' : '<span class="empty">Tap letters to make a word.</span>';
-  [...found.map(w => [w, 0]), ...bonus.map(w => [w, 1])].sort((a, b) => a[0] < b[0] ? -1 : 1).forEach(([w, isBonus]) => {
-    const s = document.createElement('button');
-    s.textContent = (isBonus ? '⭐ ' : '') + w;
-    if (isBonus) s.className = 'bonus';
-    s.title = 'Hear it'; s.setAttribute('aria-label', 'Hear ' + w);
-    onTap(s, () => say(w));
-    fl.appendChild(s);
-  });
+  // The found-word chips are rebuilt only when the lists change, not on every letter: rebuilding would
+  // drop a finger that is resting on a chip, and it is ~90 buttons on the biggest levels.
+  const key = found.join() + '|' + bonus.join();
+  if (key !== foundKey) {
+    foundKey = key;
+    const fl = $('found');
+    fl.innerHTML = (found.length || bonus.length) ? '' : '<span class="empty">Tap letters to make a word.</span>';
+    [...found.map(w => [w, 0]), ...bonus.map(w => [w, 1])].sort((a, b) => a[0] < b[0] ? -1 : 1).forEach(([w, isBonus]) => {
+      const s = document.createElement('button');
+      s.textContent = (isBonus ? '⭐ ' : '') + w;
+      if (isBonus) s.className = 'bonus';
+      s.title = 'Hear it'; s.setAttribute('aria-label', 'Hear ' + w);
+      onTap(s, () => say(w));
+      fl.appendChild(s);
+    });
+  }
   $('bonusnote').hidden = !bonus.length;
   const left = {};
   p.w.filter(w => !found.includes(w)).forEach(w => left[w.length] = (left[w.length] || 0) + 1);
@@ -344,7 +405,12 @@ function render() {
   $('left').innerHTML = keys.length ? keys.map(k => '<span><b>' + left[k] + '</b> with ' + k + ' letters</span>').join('') : '<span><b>You found them all!</b></span>';
   if (hint && found.includes(hint.w)) hint = null;
   $('hintline').textContent = hint ? hint.w.split('').map((ch, i) => i < hint.k ? ch : '_').join(' ') : '';
-  listeners.forEach(fn => { try { fn(Game.state()); } catch (e) {} });
+  // Re-entrancy guard: a listener that calls Game.goTo()/setShuffle() re-renders, but listeners are not
+  // called again from inside a listener, so an unconditional goTo() in onChange cannot recurse forever.
+  // (Such a listener does not hear about the change it caused itself.)
+  if (notifying) return;
+  notifying = true;
+  try { listeners.forEach(fn => { try { fn(Game.state()); } catch (e) {} }); } finally { notifying = false; }
 }
 function flash(t, bad) {
   $('msg').textContent = t; $('msg').className = 'msg' + (bad ? ' no' : '');
@@ -366,9 +432,9 @@ function check() {
   if (w.length < 3) flash('Words need 3 letters or more.', 1);
   else if (!w.includes(p.c)) flash('Use the yellow letter!', 1);
   else if (found.includes(w) || bonus.includes(w)) flash('You already found ' + w + '!', 1);
-  else if (p.b.includes(w)) { bonus.push(w); store.set('lf2-bonus-' + p.id, bonus); flash('Bonus word! ' + w); speak = w; }
+  else if (p.b.includes(w)) { bonus = saveWord('bonus', bonus, p.b, w); flash('Bonus word! ' + w); speak = w; }
   else if (p.w.includes(w)) {
-    found.push(w); store.set('lf2-found-' + p.id, found);
+    found = saveWord('found', found, p.w, w);
     if (found.length === p.w.length) { flash('Super Bloom! You found every word!'); speak = w + '! You found every word!'; }
     else { flash(CHEERS[Math.random() * CHEERS.length | 0] + ' ' + w); speak = w; }
   }
@@ -384,15 +450,22 @@ function pickHint() {
 function hear() { hint = pickHint(); if (!hint) return; render(); if (sound) say(hint.w); else flash('Turn sound on to hear it.', 1); }
 function peek() { const had = hint; hint = pickHint(); if (!hint) return; if (had === hint && hint.k < hint.w.length - 1) hint.k++; render(); }
 function mix() { outer = shuffle(outer); drawFlower(); }
-function goIndex(i) { idx = (i + P.length) % P.length; load(); }
+function goIndex(i) { idx = i; load(); }
+// Next/prev follow the current order (baked, or this startup's shuffle), wrapping at the ends.
+function step(d) { const n = order.length; goIndex(order[(order.indexOf(idx) + d + n) % n]); }
+function setShuffle(on) {
+  shuffleOn = !!on; store.set('lf2-shuffle', shuffleOn);
+  order = makeOrder();   // stays on the current level; only what comes next changes
+  render();
+}
 
 onTap($('hear'), hear);
 onTap($('peek'), peek);
 onTap($('del'), back);
 onTap($('enter'), check);
 onTap($('mix'), mix);
-onTap($('next'), () => goIndex(idx + 1));
-onTap($('prev'), () => goIndex(idx - 1));
+onTap($('next'), () => step(1));
+onTap($('prev'), () => step(-1));
 
 const sb = $('sound');
 function setSound() {
@@ -420,16 +493,22 @@ document.addEventListener('keydown', e => {
 });
 
 /* ---------- API for layout variants ---------- */
+// levels: every level in the baked order (fixed). order(): ids in the order play currently follows.
+// state().index is the position of the current level in order() (equal to its baked index when shuffle is off).
+// onChange(fn) is called after every render; a listener may call goTo/setShuffle, see the guard in render().
 window.Game = {
   levels: P.map(p => ({ id: p.id, name: p.name })),
   goTo(id) { const i = indexOf(id); if (i < 0) return false; goIndex(i); return true; },
   state() {
     const p = P[idx];
-    return { id: p.id, name: p.name, index: idx, typed, found: found.slice(), bonus: bonus.slice(), total: p.w.length, done: found.length === p.w.length };
+    return { id: p.id, name: p.name, index: order.indexOf(idx), typed, found: found.slice(), bonus: bonus.slice(), total: p.w.length, done: found.length === p.w.length };
   },
   // Progress for any level without switching to it (for a level picker).
-  progress(id) { const p = P[indexOf(id)]; if (!p) return null; const f = store.get('lf2-found-' + p.id, []); return { found: f.length, total: p.w.length }; },
-  onChange(fn) { listeners.push(fn); }
+  progress(id) { const p = P[indexOf(id)]; if (!p) return null; return { found: clean(store.get('lf2-found-' + p.id, []), p.w).length, total: p.w.length }; },
+  onChange(fn) { listeners.push(fn); },
+  get shuffle() { return shuffleOn; },
+  setShuffle,
+  order() { return order.map(i => P[i].id); }
 };
 
 load();
