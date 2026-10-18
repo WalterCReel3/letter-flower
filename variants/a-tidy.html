@@ -76,6 +76,11 @@ button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-web
 .word{min-height:clamp(44px,7dvh,60px);display:flex;align-items:center;justify-content:center;font-size:clamp(2rem,6.5dvh,2.6rem);font-weight:700;letter-spacing:.06em;line-height:1;text-align:center;white-space:nowrap;overflow:hidden}
 /* One line always: a 12-letter word of wide letters is shrunk by fitText(), so it is neither pushed off
    the screen edge nor wrapped (a second line would shrink the flower under the finger mid-word). */
+/* Andika's ink is low in its line box: with line-height:1 the g/p/y descenders hung ~0.15em below the box
+   and overflow:hidden cut them. Lifting the letters .14em centres the ink (about 0.79em up, 0.24em down)
+   in the row at the same font size and row height. Its font box (1.61em) still exceeds the row, so
+   #word.scrollHeight > clientHeight is expected and is not clipping; only that empty space is cut. */
+.word span:not(.caret){position:relative;top:-.14em}
 .word .c{color:var(--leaf)}
 .word .caret{display:inline-block;width:3px;height:1em;background:var(--ink);margin-left:4px;animation:blink 1s steps(1) infinite;vertical-align:-.12em}
 .word.full{animation:full .35s}
