@@ -547,8 +547,9 @@ onTap($('peek'), peek);
 onTap($('del'), back);
 onTap($('enter'), check);
 onTap($('mix'), mix);
-onTap($('next'), () => step(1));
-onTap($('prev'), () => step(-1));
+// fix-b2: both close the menu (closeMenu also starts the post-close lockout), so a double tap moves one level.
+onTap($('next'), () => { step(1); closeMenu(); });
+onTap($('prev'), () => { step(-1); closeMenu(); });
 
 const sb = $('sound');
 function setSound() {
@@ -650,7 +651,22 @@ function fitTitle() {
   const px = parseFloat(getComputedStyle(t).fontSize) * t.clientWidth / t.scrollWidth;
   t.style.fontSize = Math.max(14, Math.floor(px * 2) / 2) + 'px';
 }
-function refit() { fitTitle(); fitRecent(); }
+// fix-b2: the typed word shrinks to fit (12 m's/w's overflowed at 360). Measured from the children's boxes, not
+// scrollWidth: the row is centred, so overflow on the left is not counted by scrollWidth.
+function wordWidth(w) {
+  const a = w.firstElementChild, b = w.lastElementChild;
+  return a ? b.getBoundingClientRect().right - a.getBoundingClientRect().left : 0;
+}
+function fitWord() {
+  const w = $('word');
+  w.style.fontSize = '';
+  const room = w.clientWidth - 2;
+  if (wordWidth(w) <= room) return;
+  let px = Math.floor(parseFloat(getComputedStyle(w).fontSize) * room / wordWidth(w) * 2) / 2;
+  w.style.fontSize = px + 'px';
+  while (wordWidth(w) > room && px > 12) { px -= 0.5; w.style.fontSize = px + 'px'; }
+}
+function refit() { fitTitle(); fitRecent(); fitWord(); }
 window.addEventListener('resize', refit);
 // Online web fonts swap in after the first fit and change text widths.
 try { document.fonts.ready.then(refit); } catch (e) {}
@@ -724,11 +740,15 @@ window.addEventListener('keydown', e => {
   e.stopPropagation();
 }, true);
 
-let titleId = null;
+// fix-b2: the counter shares the row with the title, so the title is re-fitted whenever the counter text changes
+// (9 -> 10 found made "Level Snapdragon" ellipsize at 360), not only on a level change. The counter is set first.
+let titleKey = null;
 Game.onChange(s => {
-  if (s.id !== titleId) { titleId = s.id; fitTitle(); }
-  updateRecent(s);
   $('mini').textContent = s.found.length + '/' + s.total;
+  const tk = s.id + '|' + $('mini').textContent;
+  if (tk !== titleKey) { titleKey = tk; fitTitle(); }
+  fitWord();
+  updateRecent(s);
   $('nextbig').hidden = !s.done;
   $('hintline').hidden = s.done;
   if (!menu.hidden) buildLevels();
